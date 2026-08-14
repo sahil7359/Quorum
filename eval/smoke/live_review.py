@@ -90,7 +90,14 @@ async def main() -> None:
     )
 
     graph = build_review_graph(
-        ingest=IngestNode(code_host=host, logger=logger, tracer=tracer, max_diff_lines=1500),
+        ingest=IngestNode(
+            # The smoke run only exercises read paths; the fake host has no write methods,
+            # which is the point -- a smoke script must not be able to post to GitHub.
+            code_host=host,  # type: ignore[arg-type]
+            logger=logger,
+            tracer=tracer,
+            max_diff_lines=1500,
+        ),
         route=RouteNode(model=model, logger=logger, tracer=tracer),
         specialists=SpecialistsNode(
             retriever=retriever, model=model, logger=logger, tracer=tracer, top_k=5
