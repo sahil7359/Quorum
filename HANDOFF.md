@@ -235,3 +235,100 @@ Phase 2 (MCP client) starts with:
   real stdio, so the protocol is genuinely exercised without a credential. The official
   GitHub MCP server path will be written but **cannot be verified this run** — that must be
   said plainly in the Phase 2 notes rather than implied to work.
+
+---
+
+## Phase 2 — MCP client
+
+**Branch:** `phase/02-mcp-client` → merged to `main` with `--no-ff`
+**Suite:** 196 passed (22 over real stdio) · mypy clean on 36 files · 6/6 contracts
+
+### What was built, in plain language
+
+`GitHubMcpClient` reads pull requests through the official GitHub MCP server over stdio and
+posts approved findings back. Around it: a tool allowlist, a write-authorisation guard,
+connect-time inspection of what the server advertises, and a unified-diff parser producing
+domain entities.
+
+The testing approach is the notable part. With no `GITHUB_TOKEN`, I built a **fake GitHub
+MCP server using the real MCP SDK** and had the client speak actual MCP to it over a real
+subprocess. Four behaviour modes (`normal`, `missing`, `extra`, `erroring`) cover the paths
+that matter.
+
+### ⚠ What is NOT verified
+
+**The client has never talked to the real `ghcr.io/github/github-mcp-server`.** Argument
+names (`pullNumber`, `owner`, `repo`) and response shapes (`head.sha`, `user.login`) are
+taken from its documented schema, not from a live handshake. These are the most likely thing
+to be wrong. **First task when a token exists:** run the four read paths against the real
+server and correct the fixtures.
+
+The MCP *protocol* layer is genuinely verified — handshake, discovery, structured results,
+error propagation, teardown. The GitHub *payload* layer is fixtured.
+
+### A real bug, found because a gate proof failed to fail
+
+The diff parser excluded lines starting with `+++` as "file headers". I removed that
+exclusion expecting a test to fail. **The suite stayed green**, which exposed two problems:
+
+1. **Dead code.** The parser only counts inside a hunk; `+++ b/path` headers appear before
+   the first `@@` and can never reach the counter. The test named for this behaviour was
+   passing for an unrelated reason.
+2. **Actively wrong.** An added line whose *content* starts with `++` arrives as `+++...`
+   and was being silently uncounted. Not hypothetical — the retrieval corpus is
+   documentation, and a `CONTRIBUTING.md` explaining patches contains exactly these lines.
+
+Guard removed (not fixed), two tests added that exercise the real case, and the proof
+re-run: reinstating the wrong guard now turns 2 tests red.
+
+**This is the single most valuable thing the "prove it fails" rule has done so far.** I had
+a rationale comment, a test with a matching name, and a passing suite — three signals
+agreeing, all wrong.
+
+### Decisions I made that you did not specify
+
+| Decision | Why |
+| --- | --- |
+| Guards in the **client**, not the graph | A graph-node check protects one call path. Phases 7 and 8 add two more callers. See ADR-0003. |
+| **Allowed** and **write** are separate predicates | Being on the allowlist must not imply being writable. |
+| Missing required *read* tool → refuse to connect | A review that silently skipped the diff would produce zero findings and look like a clean review. |
+| Unexpected advertised tools → log at INFO, do not fail | The real server exposes dozens of tools; failing would be absurd, ignoring would hide a server gaining `delete_repository`. |
+| Write surface asserted as a test | `test_write_surface_is_exactly_two_tools` — a change to the blast radius shows up in review. |
+| One subprocess per client lifetime, not a shared session | A long-lived stdio subprocess needs health checks, restart-on-crash and concurrency control. Quorum does 2–4 live reviews a day; that is solving a performance problem I do not have. |
+| Each test opens its own `async with` | An async-generator fixture finalises in a different task, and the MCP session's anyio task group refuses a foreign-task exit. |
+
+### Environment note that may bite later
+
+**`mcp` resolved to v2.0.0, not v1.x.** `FastMCP` does not exist in this version — the class
+is `mcp.server.mcpserver.MCPServer` — and result fields are snake_case (`server_info`,
+`is_error`, `structured_content`). Most MCP tutorials and the brief's mental model assume
+v1. Phase 7 (publishing Quorum's own MCP server) is built on `MCPServer` accordingly.
+
+### What I was unsure about and guessed at
+
+- **`get_file_contents` return shape.** The real server may return base64-encoded content in
+  a JSON envelope rather than plain text. The client handles both a bare string and a dict
+  with a `content` key, but **does not base64-decode**. If the real server encodes, that is
+  a one-line fix and a test.
+- **`list_changed_files` is not on `CodeHostPort`.** It is a public method on the client used
+  for routing signals. I left it off the port because no application code needs it yet; if
+  Phase 4 routing uses it, it should be promoted to the port.
+- **Error results vs exceptions.** I treat `is_error` results as `CodeHostError`. Whether the
+  real server signals rate limiting that way or by transport failure is unknown, so retry
+  and backoff are **not implemented** — I did not want to write a retry policy against
+  guessed failure semantics. That is a genuine gap for the live path.
+
+### What the next phase starts with
+
+Phase 3 (Document RAG) — **the highest-risk phase** — starts with:
+
+- `Chunk`, `ChunkId`, `ChunkLocator` already defined and tested, with the id scheme frozen
+  and four identity invariants green. **The chunker must produce locators matching
+  `ChunkLocator.canonical()` exactly.**
+- `ChunkStorePort`, `EmbedderPort`, `RetrieverPort`, `RerankerPort` defined but with no
+  adapters.
+- `test_chunk_never_spans_files` still owed against the real chunker (deferred here from
+  Phase 1; a partial version now exists in `test_diff_parser.py` for hunks).
+- Per R1 of the ImplementationPlan reflection, Phase 3 splits into **3a chunking and chunk
+  identity** and **3b retrieval, fusion, rerank, eval**, committed separately.
+- `fastembed` is not yet installed. Docker is available for `pgvector/pgvector:pg16`.

@@ -68,3 +68,24 @@ it affects. This is the fast index for finding where something lives.
   do not; a hash is not reversible. Reworded to *verifiable against*, test renamed to
   `test_chunk_id_verifies_against_its_locator`.
 - Added `learn/01-domain-and-ports.md`.
+
+## Phase 2 — MCP client — 2026-08-14
+
+- Added `app/infrastructure/mcp/allowlist.py` — the vetted tool set, split into read and
+  write. Affects everything the agent can reach on GitHub.
+- Added `app/infrastructure/mcp/github_client.py` — `GitHubMcpClient` over stdio, satisfying
+  `CodeHostPort`. Allowlist and write-authorisation guards live here rather than in the
+  graph, so they hold for every caller. Token passed by environment, never argv.
+- Added `app/infrastructure/mcp/diff_parser.py` — unified diff to `Diff`/`ChangedFile`/
+  `DiffHunk`, with the size cap and a truncation flag that travels with the data.
+- Added `tests/support/fake_github_mcp_server.py` — a real MCP server built with the real
+  SDK, with four behaviour modes. Lets the protocol be exercised without a GitHub token.
+- Added `tests/support/fakes.py` — `RecordingLogger`, `NullTracer`, `FrozenClock`.
+- Added `tests/integration/test_github_mcp_client.py` (22 tests over real stdio),
+  `tests/unit/test_diff_parser.py`, `tests/security/test_mcp_allowlist.py`. 196 total.
+- **Fixed a real bug found by a failed gate proof:** the diff parser excluded lines starting
+  with `+++` as "file headers". That exclusion was dead code (headers never reach the
+  counter) *and* wrong (added content beginning with `++` was silently uncounted). Removed,
+  and replaced with tests that exercise the real case.
+- Added `docs/adr/0003-guards-live-in-the-adapter.md` and `learn/02-mcp-client.md`.
+- Added dependency: `mcp>=1.9` (resolved to 2.0.0).

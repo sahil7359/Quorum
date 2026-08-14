@@ -10,6 +10,7 @@ readme = "README.md"
 #      alt: declare the whole stack up front (fewer resolver runs, but a dependency list
 #      nobody can account for line by line)
 dependencies = [
+    "mcp>=1.9",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
     "structlog>=24.4",
