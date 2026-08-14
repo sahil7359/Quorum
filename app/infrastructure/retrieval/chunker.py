@@ -27,10 +27,13 @@ from dataclasses import dataclass
 from typing import Final
 
 from app.domain.entities import Chunk
+from app.domain.text import estimate_tokens
 from app.domain.values import ChunkLocator
 
 _ATX_HEADING = re.compile(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*#*\s*$")
 _FENCE = re.compile(r"^\s*(?P<ticks>`{3,}|~{3,})")
+
+__all__ = ["ROOT_SECTION", "ChunkerConfig", "chunk_markdown", "estimate_tokens"]
 
 ROOT_SECTION: Final[str] = "(document root)"
 """Section path for content appearing before the first heading.
@@ -52,17 +55,6 @@ class ChunkerConfig:
     target_tokens: int = 320
     overlap_tokens: int = 48
     min_tokens: int = 16
-
-
-def estimate_tokens(text: str) -> int:
-    """Approximate token count at roughly four characters per token.
-
-    Deliberately named *estimate*. It is not a real tokenizer, and nothing that must be
-    exact may depend on it -- it drives chunk packing, where being 15% out changes chunk
-    boundaries slightly and changes nothing else. Budget accounting uses provider-reported
-    counts, never this.
-    """
-    return max(1, len(text) // 4)
 
 
 @dataclass(frozen=True, slots=True)

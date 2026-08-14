@@ -115,3 +115,33 @@ it affects. This is the fast index for finding where something lives.
 - Added `docs/adr/0004-rerank-disabled.md` and `learn/03-retrieval.md`.
 - Added dependency: `fastembed`.
 - Changed default `QUORUM_RERANK_ENABLED` to `false`.
+
+## Phase 4 — Specialists + supervisor — 2026-08-14
+
+- Added `app/domain/log_events.py` — every structured log event as a named constant. A log
+  line is an interface; constants make renames visible and documentation enforceable.
+- Added `docs/Logging.md` — the log catalogue: every event with the question it exists to
+  answer, its level, and its fields. Plus the log/trace/audit distinction.
+- Added `app/domain/text.py` — `estimate_tokens` moved here from the chunker so the
+  application layer can use it without importing infrastructure.
+- Added `app/infrastructure/llm/{http,ollama,groq}.py` — two `ChatModelPort` adapters over
+  hand-rolled httpx, with retry that only retries idempotent failures. Groq is **unverified**.
+- Added `app/application/agents/prompts.py` — system prompts as constants (G2), untrusted
+  content fenced with markers that content cannot forge (G1).
+- Added `app/application/agents/routing.py` — deterministic heuristic floor plus LLM
+  extension. The model may add specialists, never remove them. Affects every review.
+- Added `app/application/agents/scoping.py` — AST context scoping with a window fallback.
+- Added `app/application/agents/specialists.py` — per-specialist retrieval, prompting and
+  defensive parsing. A malformed response drops one specialist, not the run.
+- Added `app/application/agents/{state,nodes,graph}.py` — `ingest → route → specialists →
+  synthesise`, with `TracedNode` making untraced nodes impossible.
+- Added `eval/scoping/runner.py` — measures token reduction over this repo's real git history.
+- **Measured: AST scoping cuts context by 34.86%** (token-weighted, 8 commits, 123 files);
+  median per-commit 38.65%; Python-only 33.76%. Committed at `eval/baselines/scoping.json`.
+- **Fixed a routing bug found by a test:** a README-only pull request summoned the
+  test-coverage reviewer. `ChangedFile.is_code_file` now excludes documentation.
+- **Fixed nine bare log-event strings** in the Phase 2/3 modules, caught by the new
+  `test_no_bare_event_strings_at_call_sites`.
+- Added `docs/adr/0005-heuristic-floor-llm-extends.md` and `learn/04-multi-agent.md`.
+- Added dependencies: `langgraph`, `httpx` (the latter was already transitive; now explicit).
+- Tests: 325 → 404.

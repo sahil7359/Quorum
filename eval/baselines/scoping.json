@@ -1,0 +1,79 @@
+{
+  "commits_measured": 8,
+  "files_measured": 123,
+  "ast_regions": 391,
+  "window_regions": 112,
+  "total_tokens_whole_file": 292259,
+  "total_tokens_scoped": 190373,
+  "overall_reduction_pct": 34.86,
+  "median_commit_reduction_pct": 38.65,
+  "python_tokens_whole_file": 56061,
+  "python_tokens_scoped": 37137,
+  "python_reduction_pct": 33.76,
+  "per_commit": [
+    {
+      "sha": "591bade4c7",
+      "files": 4,
+      "ast_regions": 4,
+      "tokens_whole_file": 15584,
+      "tokens_scoped": 1580,
+      "reduction_pct": 89.86
+    },
+    {
+      "sha": "02f425babb",
+      "files": 2,
+      "ast_regions": 0,
+      "tokens_whole_file": 9649,
+      "tokens_scoped": 2309,
+      "reduction_pct": 76.07
+    },
+    {
+      "sha": "79479ab014",
+      "files": 42,
+      "ast_regions": 116,
+      "tokens_whole_file": 116714,
+      "tokens_scoped": 75759,
+      "reduction_pct": 35.09
+    },
+    {
+      "sha": "d98919256f",
+      "files": 18,
+      "ast_regions": 94,
+      "tokens_whole_file": 58822,
+      "tokens_scoped": 36086,
+      "reduction_pct": 38.65
+    },
+    {
+      "sha": "8dc89a05b4",
+      "files": 15,
+      "ast_regions": 153,
+      "tokens_whole_file": 30724,
+      "tokens_scoped": 18349,
+      "reduction_pct": 40.28
+    },
+    {
+      "sha": "3a8ed6cb1a",
+      "files": 26,
+      "ast_regions": 24,
+      "tokens_whole_file": 36827,
+      "tokens_scoped": 32351,
+      "reduction_pct": 12.15
+    },
+    {
+      "sha": "e0db57d69a",
+      "files": 1,
+      "ast_regions": 0,
+      "tokens_whole_file": 147,
+      "tokens_scoped": 147,
+      "reduction_pct": 0.0
+    },
+    {
+      "sha": "52365a188d",
+      "files": 15,
+      "ast_regions": 0,
+      "tokens_whole_file": 23792,
+      "tokens_scoped": 23792,
+      "reduction_pct": 0.0
+    }
+  ]
+}

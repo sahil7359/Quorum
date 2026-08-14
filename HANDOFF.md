@@ -579,3 +579,112 @@ is the only thing that establishes it covers that line.
   the highest value-per-minute experiment available.
 - **`HybridRetriever` type annotations.** The ports exist; they just are not wired through.
   Twenty minutes, removes the ugliest code in the repo.
+
+---
+
+## Phase 4 — Specialists + supervisor
+
+**Branch:** `phase/04-multi-agent` → merged to `main` with `--no-ff`
+**Suite:** 404 passed · mypy clean on 70 files · 6/6 contracts · retrieval gate PASS
+
+### What was built, in plain language
+
+The agent. A LangGraph graph `ingest → route → specialists → synthesise`; two LLM adapters
+behind one Protocol; prompt construction with fencing; AST context scoping; the supervisor's
+routing; and the wiring that finally makes cite-or-drop run.
+
+### The design decision to remember
+
+**Routing cannot be talked out of a security review.** Deterministic heuristics compute a
+floor; the model may only *add* to it. The diff is attacker-controlled and the router reads
+it, so a pure-LLM router is the softest target in the system. ADR-0005 has the full argument
+including what over-routing costs.
+
+### Numbers measured
+
+| Number | Value |
+| --- | --- |
+| Context reduction (token-weighted) | **34.86%** (292,259 → 190,373 tokens) |
+| Median per-commit reduction | 38.65% |
+| Python-only reduction | 33.76% |
+| AST regions / window fallbacks | 391 / 112 |
+
+Measured over 8 real commits from this repo's own history. Committed at
+`eval/baselines/scoping.json`, reproduce with `uv run python -m eval.scoping.runner`.
+
+**I expected Python-only to be much higher** (markdown always takes the window fallback, so I
+assumed it was dragging the average down). It came back *lower*. Hypothesis wrong; both
+numbers reported.
+
+### ⚠ Still not measured
+
+**No LLM has produced a review in this repository.** Every graph test runs against
+`FakeChatModel`. Finding precision, finding recall and specialist routing accuracy remain
+`TODO: not yet measured`. Phase 6 is where those get evidence.
+
+The Ollama adapter is written and typed but **has never been run against the live Ollama
+server** — the graph tests do not need it. That is a 10-minute check worth doing early:
+
+```bash
+uv run python -c "import asyncio,httpx; from app.infrastructure.llm.ollama import OllamaChatModel; from app.domain.ports import ChatMessage; from tests.support.fakes import RecordingLogger; m=OllamaChatModel(base_url='http://localhost:11434', model='llama3.1:8b', logger=RecordingLogger()); print(asyncio.run(m.complete([ChatMessage('user','Reply with JSON {\"ok\":true}')], node='smoke')).content)"
+```
+
+The Groq adapter is written against the documented OpenAI-compatible schema and **cannot be
+verified** without a key. Its `usage` field names and `response_format` handling are the most
+likely things to be wrong.
+
+### Decisions I made that you did not specify
+
+| Decision | Why |
+| --- | --- |
+| Hand-rolled httpx adapters, not `langchain-groq`/`langchain-ollama` | Exact provider-reported token counts are needed for the daily budget; an estimate that drifts makes the cap meaningless. |
+| Hand-rolled retry, not `tenacity` | Only idempotent failures are retried. A 400 means the request is malformed and retrying burns 3× quota against a 100K/day cap. |
+| `estimate_tokens` moved from the chunker to `app/domain/text.py` | The application layer needs it and cannot import infrastructure. |
+| Graph **ends at `synthesise`**, no stub publish node | A stub that posts nothing is indistinguishable in a test from a guard that refuses to post. That is the one distinction this project cannot blur. Phase 5 inserts `interrupt()` and `publish`. |
+| `log_events.py` constants + `docs/Logging.md` + 3 enforcement tests | You asked for every log documented with a brief why. Making it a test means it cannot go stale. |
+| `finding.dropped` at INFO, `specialist.failed` at WARN | Dropping an uncited finding is correct behaviour, not degradation. One specialist failing is handled; escalating it to ERROR trains you to ignore ERROR. |
+| `MAX_FINDINGS_PER_SPECIALIST = 8` | A specialist returning 40 findings is pattern-matching noise, and it blows the synthesis prompt budget. Blunt, and I would revisit it with eval evidence. |
+| Retrieval query = specialist concern + changed symbols, **not the whole diff** | Embedding a whole diff retrieves whatever the diff is *about* — the security specialist gets feature chunks and nothing about security. |
+
+### Bugs found this phase
+
+1. **README-only PRs summoned the test-coverage reviewer.** The heuristic keyed on "any
+   non-test file". `ChangedFile.is_code_file` now excludes documentation. Found by a test
+   whose expectation I nearly "fixed" instead.
+2. **Nine bare log-event strings** in the Phase 2/3 modules, caught the moment
+   `test_no_bare_event_strings_at_call_sites` was written.
+3. **A gate proof that failed to fail.** Breaking `visible[specialist] = list(corpus)` stayed
+   green, because the corpus is built incrementally and did not yet contain the later
+   specialist's chunk. The real failure shape is in synthesis. Second time this has happened;
+   the lesson is that breaking something *plausible* is not the same as breaking the specific
+   thing the test claims to guard.
+
+### What I was unsure about and guessed at
+
+- **`FALLBACK_CONTEXT_LINES = 12`** for non-Python files is a guess. Unmeasured.
+- **The security regex list is Python-biased** and will need extending for other ecosystems.
+- **`_enclosing_spans` keeps the smallest span covering each target**, so a change to a method
+  ships the method, not the class. If a specialist needs the class docstring for context, this
+  is the thing to revisit.
+- **Synthesis does not currently call an LLM.** It deduplicates and ranks in code. The
+  `SYNTHESIS_SYSTEM_PROMPT` exists and is unused. I judged that a 70B call to reorder a list
+  that code can already order was not worth the tokens — but the plan said synthesis runs on
+  the big model, so **this is a deliberate deviation you may want to reverse.** The prompt is
+  ready if you do.
+- **`Diff.has_source_changes` is now unused** by routing (replaced by `has_code_changes`) but
+  is still on the entity. Harmless; flagging so it does not look accidental.
+
+### What the next phase starts with
+
+Phase 5 (HITL + audit) starts with:
+
+- A graph ending at `synthesise` with `state["findings"]` populated and ranked.
+- `Approval.authorises(finding)` and `Finding.payload_hash` already written and tested
+  (Phase 1), and the `GitHubMcpClient` write guard already refusing unauthorised posts
+  (Phase 2). **Phase 5 is mostly wiring plus persistence**, not new invariants.
+- `langgraph` installed; `interrupt()` and `Command` imported and verified available.
+- **No checkpointer, no database, no persistence of any kind yet.** Durable `interrupt()`
+  needs one — `langgraph-checkpoint-sqlite` locally, `-postgres` for prod. Docker is up and
+  `pgvector/pgvector:pg16` is available.
+- `AuditPort`, `ReviewCachePort` and `BudgetPort` are defined in `app/domain/ports.py` with
+  **no adapters at all**.

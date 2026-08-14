@@ -84,6 +84,22 @@ class ChangedFile:
     hunks: tuple[DiffHunk, ...] = ()
 
     @property
+    def is_documentation(self) -> bool:
+        """Prose, not code.
+
+        why: without this, the "source changed but no tests" heuristic fires on a
+        README-only pull request and summons the test-coverage reviewer to comment on
+        prose. Found by a test that expected an empty floor and got one.
+        alt: treat every non-test file as code (simpler, wrong on documentation PRs)
+        """
+        lowered = self.file_path.lower().replace("\\", "/")
+        return lowered.endswith((".md", ".rst", ".txt", ".adoc")) or lowered.startswith("docs/")
+
+    @property
+    def is_code_file(self) -> bool:
+        return not self.is_test_file and not self.is_documentation
+
+    @property
     def is_test_file(self) -> bool:
         """Heuristic, and deliberately a broad one.
 
@@ -139,6 +155,11 @@ class Diff:
     @property
     def has_source_changes(self) -> bool:
         return any(not f.is_test_file for f in self.files)
+
+    @property
+    def has_code_changes(self) -> bool:
+        """Changes to files that could plausibly need a test. Excludes documentation."""
+        return any(f.is_code_file for f in self.files)
 
 
 @dataclass(frozen=True, slots=True)

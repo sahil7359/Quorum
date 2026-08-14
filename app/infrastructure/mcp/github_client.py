@@ -27,6 +27,7 @@ from typing import Any, Self
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from app.domain import log_events
 from app.domain.entities import Approval, ChangedFile, Diff, Finding, PullRequest, RepoRef
 from app.domain.errors import ApprovalRequiredError, CodeHostError, ToolNotAllowedError
 from app.domain.ports import LoggerPort
@@ -115,13 +116,13 @@ class GitHubMcpClient:
             # Not an error: the GitHub MCP server legitimately exposes dozens of tools we do
             # not use. Logged so that a server gaining capability is visible, not surprising.
             self._logger.info(
-                "mcp.tools.unvetted_available",
+                log_events.MCP_TOOLS_UNVETTED,
                 server=server_name,
                 count=len(unexpected),
                 sample=sorted(unexpected)[:10],
             )
 
-        self._logger.info("mcp.connected", server=server_name, advertised=len(advertised))
+        self._logger.info(log_events.MCP_CONNECTED, server=server_name, advertised=len(advertised))
 
     # -- tool invocation ----------------------------------------------------
 
@@ -133,17 +134,17 @@ class GitHubMcpClient:
         write_authorised: bool = False,
     ) -> Any:
         if not is_allowed(tool):
-            self._logger.error("mcp.tool.refused", tool=tool, reason="not_allowlisted")
+            self._logger.error(log_events.MCP_TOOL_REFUSED, tool=tool, reason="not_allowlisted")
             raise ToolNotAllowedError(tool)
 
         if is_write(tool) and not write_authorised:
-            self._logger.error("mcp.tool.refused", tool=tool, reason="no_approval")
+            self._logger.error(log_events.MCP_TOOL_REFUSED, tool=tool, reason="no_approval")
             raise ApprovalRequiredError(f"write tool {tool!r} called without an approval")
 
         if self._session is None:
             raise CodeHostError("client is not connected; use `async with GitHubMcpClient(...)`")
 
-        self._logger.debug("mcp.tool.call", tool=tool, arguments=sorted(arguments))
+        self._logger.debug(log_events.MCP_TOOL_CALL, tool=tool, arguments=sorted(arguments))
         result = await self._session.call_tool(tool, arguments)
 
         if result.is_error:
@@ -190,7 +191,7 @@ class GitHubMcpClient:
             # WARN, not INFO: degraded but handled. The truncation also rides on the entity
             # so that whoever renders the review can say what it did not see.
             self._logger.warn(
-                "diff.truncated",
+                log_events.DIFF_TRUNCATED,
                 repo=str(repo),
                 pr=number,
                 limit=max_lines,
@@ -241,7 +242,7 @@ class GitHubMcpClient:
         #      alt: rely on the publish node being the only caller (one bug from a leak)
         if not approval.authorises(finding):
             self._logger.error(
-                "publish.refused",
+                log_events.PUBLISH_REFUSED,
                 finding_id=str(finding.finding_id),
                 reason="approval_does_not_authorise",
             )
@@ -260,7 +261,7 @@ class GitHubMcpClient:
             write_authorised=True,
         )
         self._logger.info(
-            "publish.posted",
+            log_events.PUBLISH_POSTED,
             finding_id=str(finding.finding_id),
             chunk_id=str(finding.citation.chunk_id),
         )
