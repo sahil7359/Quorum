@@ -2,6 +2,9 @@
 
 Kept current as work proceeds. Last updated: **2026-08-14**.
 
+> **Run stopped after Phase 3.** Planning + Phases 0-3 complete and green. Phases 4-7 not
+> started -- remaining context would have forced a rushed Phase 4. See HANDOFF.md.
+
 Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a caveat
 
 ## Phases

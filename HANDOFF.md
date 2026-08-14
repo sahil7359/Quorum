@@ -448,3 +448,134 @@ Phase 4 (Specialists + supervisor) starts with:
   now) and `GroqChatModel` (no key — write it, cannot verify it).
 - LangGraph is **not yet a dependency**. It arrives in Phase 4 with ADR-0002 already written.
 - `RecordingLogger` in `tests/support/fakes.py` is available for node tests.
+
+---
+
+# Run summary — stopped after Phase 3
+
+## Why I stopped here, and not at Phase 7
+
+You asked for Phases 0–7. I completed **planning + Phases 0, 1, 2, 3** and stopped.
+
+The instruction I followed: *"If context is filling and later phases would be rushed, stop at
+the last phase you can do properly and say so. Phases 5–7 done well beats 5–7 done thinly."*
+
+Phase 3 came in substantially larger than planned — it produced a real measured result that
+overturned a design decision, and a self-referential-eval bug that took real work to
+diagnose and fix properly. By the end of it, what remained of my context would not have
+covered Phase 4 (LangGraph graph, three specialists, supervisor routing with heuristics,
+AST-scoped context, the cite-or-drop wiring, a token-reduction measurement, plus tests, gate
+proofs and four record artifacts) at the standard of the first four phases.
+
+The failure mode I was avoiding is specific: a half-built agent graph with untested nodes and
+a `learn/04` written from intention rather than from code. That would have been worse than
+not starting, because you would have had to work out which parts were real.
+
+**Everything committed is green:** 257 tests, `mypy --strict` clean on 49 files, 6/6
+import-linter contracts, retrieval gate PASS against a committed baseline. No half-finished
+work is on `main`.
+
+## What exists now
+
+| Phase | Status | Evidence |
+| --- | --- | --- |
+| Planning | ✅ | 11 documents + reflection with 8 recorded changes |
+| 0 — Scaffolding | ✅ | 25 tests, boundaries enforced two ways, 3/3 gate proofs |
+| 1 — Domain core | ✅ | 133 tests, cite-or-drop as a type transition, 3/3 gate proofs |
+| 2 — MCP client | ✅ | 196 tests (22 over real stdio), 3/3 gate proofs, 1 real bug found |
+| 3 — Document RAG | ✅ | 257 tests, first real numbers, 3/3 gate proofs, 1 real bug found |
+| 4–7 | ⬜ **not started** | — |
+
+**Records:** `learn/00`–`learn/03`, ADRs 0001–0004, `CHANGELOG.md`, `docs/INTERVIEW_BRIEF.md`
+and `docs/Tracker.md` all current. Four phases, four learn notes, nothing batched at the end.
+
+## The three riskiest assumptions now baked in
+
+### 1. The GitHub MCP tool contract is fixtured, not verified
+
+**What is assumed:** that the official `ghcr.io/github/github-mcp-server` accepts arguments
+named `owner`, `repo`, `pullNumber`, `path`, `ref`, and returns payloads shaped like
+`{"head": {"sha": ...}, "user": {"login": ...}}`. All of that came from documentation. **The
+client has never spoken to the real server**, because there is no `GITHUB_TOKEN` here.
+
+**Why it is risky:** it is invisible. Every test passes, because my fake server implements
+the shapes I assumed. If the real server disagrees, every read path fails on first contact —
+and it will fail at the demo, not in CI.
+
+**Cost to reverse:** low, and bounded. Set a token, run the four read paths against the real
+server, correct `github_client.py` and `tests/support/fake_github_mcp_server.py` in tandem.
+An hour, probably less. The protocol layer — handshake, discovery, structured results, error
+propagation — *is* genuinely verified and would not change. **Do this before anything in
+Phase 4 depends on the diff shape.**
+
+### 2. Retrieval quality is judged by labels I wrote myself
+
+**What is assumed:** that 20 queries I wrote, against a corpus of my own documentation, with
+relevance judgements I made, say something useful about retrieval quality.
+
+**Why it is risky:** the numbers now in `README`-adjacent documents (NDCG@5 0.5811,
+Success@5 0.95) look like benchmark figures and are not. More sharply — **ADR-0004 cut a
+component on this evidence.** If the labels are biased toward lexical matching (plausible; I
+wrote queries while looking at the documents), that would systematically disadvantage a
+cross-encoder, which is precisely the thing I disabled.
+
+**Cost to reverse:** moderate. The delta is more robust than the absolute score, and the
+reranker is behind a flag rather than deleted, so re-enabling is one config change. But
+*re-deciding* honestly needs a corpus and labels I did not author — realistically the Phase 12
+gallery repositories. Budget half a session. Until then the honest framing, which is in
+`learn/03` and the interview brief, is "on this corpus, with these models, reranking lost" —
+never "reranking is not worth it".
+
+### 3. `InMemoryChunkStore` is the only store, and the production one is unwritten
+
+**What is assumed:** that a pgvector adapter will drop cleanly behind `ChunkStorePort` when
+persistence lands.
+
+**Why it is risky:** the in-memory store does an exhaustive exact cosine scan. pgvector with
+an HNSW index does *approximate* search, so it will return slightly different neighbours —
+which means **the committed retrieval baseline may not survive the switch**, and the
+regression gate would fire on a change that is a deliberate deployment decision rather than a
+regression. There is also a silent-divergence hazard: ingest-time and query-time vectors must
+come from the identical model, and nothing currently asserts that.
+
+**Cost to reverse:** low if done deliberately, annoying if discovered late. Write the pgvector
+adapter (Docker `pgvector/pgvector:pg16` is available and the daemon is up), run the eval
+against it, and **record a second baseline keyed by store type** rather than overwriting the
+in-memory one. A test asserting both stores return the same top-k for a fixed query set is
+the thing that would catch divergence. Half a session.
+
+## Two bugs worth remembering
+
+Both were found by the rule that a gate must be proven able to fail. Neither would have been
+found by writing more tests.
+
+1. **A dead-and-wrong guard in the diff parser** (Phase 2). I removed a `+++` exclusion
+   expecting a test to go red; the suite stayed green. The guard was unreachable *and* it
+   silently undercounted added lines whose content begins with `++` — which happens in
+   documentation about patches, which is exactly our corpus.
+2. **A self-referential eval** (Phase 3). The corpus was the live `docs/` tree, so writing
+   the ADR that recorded a result changed that result. Three runs, three different numbers,
+   no code change.
+
+The pattern in both: *a passing test, a matching name, and a plausible rationale comment can
+all agree and all be wrong.* Watching a test go red for the specific line you think it covers
+is the only thing that establishes it covers that line.
+
+## What to do next
+
+1. **Read `learn/03`** — it is the best of the four notes and covers the most interview-ready
+   material.
+2. **Rewrite the commit messages.** Every one ends `[MESSAGE PENDING — see HANDOFF.md]`. The
+   per-phase `CHANGELOG.md` entries are the "what changed" summaries. `git rebase -i --root`.
+3. **Get a `GITHUB_TOKEN`** and close risk #1 before Phase 4 builds on the diff shape.
+4. **Then say "begin Phase 4"** — the Phase 3 handoff section above lists exactly what Phase 4
+   starts with, including the one piece of ugly code (`HybridRetriever` taking `object`
+   parameters with `# type: ignore` at the call sites) that should be cleaned up first.
+
+## Cheap wins left on the table
+
+- **Chunk-size sweep.** `target_tokens=320` / `overlap=48` are unmeasured, and plausibly
+  matter more than reranking did. The eval harness already supports the comparison — this is
+  the highest value-per-minute experiment available.
+- **`HybridRetriever` type annotations.** The ports exist; they just are not wired through.
+  Twenty minutes, removes the ugliest code in the repo.
