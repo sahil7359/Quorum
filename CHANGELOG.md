@@ -25,3 +25,24 @@ it affects. This is the fast index for finding where something lives.
 - Added `docs/Tracker.md` — status board, including environment facts established at start.
 - Added `docs/adr/0001-clean-architecture.md` — four layers, enforced three ways.
 - Added `.gitignore` with `.claude/` ignored from the first commit, and `.env.example`.
+
+## Phase 0 — Scaffolding — 2026-08-14
+
+- Added `pyproject.toml`: `uv` project on Python 3.12, ruff, mypy `--strict`, pytest, and
+  six import-linter contracts. Affects every subsequent phase's tooling.
+- Added `app/{domain,application,infrastructure,interface}/` package skeletons with the
+  layering rule documented in each `__init__`.
+- Added `app/infrastructure/config.py` — typed `Settings` read from `QUORUM_*` env vars,
+  plus `config_hash()`, which defines the review cache key. Affects caching and cost control.
+- Added `tests/architecture/` — AST fitness tests for domain purity and the application
+  layer's no-I/O rule, plus a test that runs the import-linter contracts inside pytest.
+- Added `tests/support/ast_imports.py` — shared AST import extraction that parses rather
+  than imports, so a boundary violation is detected without executing it.
+- Added `tests/unit/test_config.py` — cache-key behaviour, both positive and negative:
+  output-affecting settings must change the hash, secrets and URLs must not.
+- Added `.pre-commit-config.yaml` and `.gitleaks.toml` — gitleaks, ruff, mypy, import-linter.
+- Added `.github/workflows/ci.yml` — quality, secrets and test jobs. Eval gates land in Phase 11.
+- Added `.gitattributes` (LF normalisation) and `.python-version` (3.12 pin).
+- Added `docs/adr/0002-langgraph-in-application.md` — LangGraph is a named exception in the
+  application layer; the graph is the application logic. Affects Phase 4.
+- Added `learn/00-scaffolding.md`.

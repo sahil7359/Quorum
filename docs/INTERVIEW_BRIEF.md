@@ -83,3 +83,94 @@ claim the invariant is stronger than it is.
 None. No code has been written and nothing has been measured. Every metric slot in
 `docs/Tracker.md` and `README.md` currently reads `TODO: not yet measured`, which is the
 correct state.
+
+---
+
+## Phase 0 — Scaffolding
+
+### Five questions
+
+**1. You have two mechanisms checking the same layer boundary. Isn't one enough?**
+
+They fail for different reasons, which is the point. import-linter is configuration, and
+configuration can be relaxed in the same commit that violates it — deleting a line from
+`forbidden_modules` looks like tidying up. The AST test encodes the same rule as a test, so
+weakening it is visible as weakening a test. There's also a concrete bug the pair caught:
+import-linter needs `include_external_packages = true`, and without it "domain must not
+import httpx" passes vacuously because httpx isn't a node in the graph. A green check that
+isn't looking at anything is the exact failure mode I'm designing against.
+
+**2. Why does the AST test parse the source instead of importing the module?**
+
+Because importing a module to inspect its dependencies is circular. If `app/domain/foo.py`
+imports `sqlalchemy`, then to detect that by importing `foo` you'd first have to
+successfully import it — and if the dependency is missing in that environment, you get an
+ImportError that looks like a broken test rather than a caught violation. Parsing detects
+the violation without executing anything. I also used `sys.stdlib_module_names` rather than
+a hand-maintained allowlist so the definition of "standard library" can't drift from the
+interpreter the tests actually run on.
+
+**3. You defined a cache key in Phase 0, before there was a cache. Why so early?**
+
+Because the free-tier token budget is the binding constraint on the whole project — 100K
+tokens a day, and one review is 25–50K. Caching by commit SHA isn't an optimisation I bolt
+on later, it's what makes a six-PR gallery serveable at all. And the subtle part had to be
+decided while I was thinking about it clearly: `config_hash` covers everything that changes
+what a review *says* — prompt version, chunker version, models, retrieval settings, diff cap
+— and deliberately excludes everything that only changes how we get there, like API keys and
+base URLs. A cache that misses a prompt change is worse than no cache, because it's
+confidently wrong; and one that invalidates when I rotate a key throws away the gallery for
+no reason.
+
+**4. Your architecture test bans `os` and `pathlib` in the application layer. That's
+stricter than "no I/O" — why?**
+
+The side effect is what I was actually after. If application code can't touch the
+filesystem, prompts can't be loaded from disk, so they have to be constants in code. That's
+guardrail G2 — the system prompt has no interpolation point — enforced structurally instead
+of by code review. It's stricter than necessary and I know it. If Phase 4 makes it painful
+I'll revisit it as a deliberate decision with an ADR, not by quietly adding an exception.
+
+**5. How do you know your tests can fail?**
+
+I broke each guarded thing and watched it go red before committing. Adding `import structlog`
+to a domain module failed the AST test and broke the import-linter contract; adding
+`import sqlalchemy` plus an infrastructure import to the application layer failed two tests
+and broke two contracts; freezing `prompt_version` inside `config_hash()` failed the
+parametrised cache-key test. Then I restored and the suite went green — 25 passed, mypy
+clean, six contracts kept. I do this because my last project shipped a CI gate that asserted
+a tautology and passed while scoring 0.0, and it sat in a public repo for weeks. Related: the
+import-linter test *asserts* rather than skips when the binary is missing, because a silently
+skipped architecture check is the same as no check.
+
+### Most likely to be challenged
+
+> *"Six import-linter contracts, an AST test suite, and four layers — for a project with
+> three runtime dependencies and no features yet. Isn't this ceremony?"*
+
+Partly, yes, and I'd concede the timing looks odd. The honest answer has two halves.
+
+The half I'd defend: the boundary is cheap to establish now and expensive to retrofit. The
+specific payoff is that eval runs against local Ollama and production runs against Groq as a
+*config change*, which only works if nothing in application or domain knows which provider
+exists. That property has to be true from the first adapter, not negotiated later.
+
+The half I'd concede: for a project this size, a two-layer split — `core` and `adapters` —
+would capture most of the benefit at half the ceremony, and I said so in ADR-0001 rather
+than pretending four layers was obviously right. I went with four because separating *what
+a finding is* from *how a review is orchestrated* is what keeps the domain stdlib-only, and
+the stdlib-only property is what makes the AST fitness test possible at all. If the domain
+and application layers merged, LangGraph would land in the pure layer and that test would
+have nothing to check.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Tests passing | 25 | `uv run pytest` on the Phase 0 commit | Nothing about review quality — these test tooling and configuration, not behaviour |
+| import-linter contracts kept | 6 of 6 | `uv run lint-imports` | That the contracts are *sufficient*, only that they hold. `include_external_packages` was needed to stop one passing vacuously |
+| mypy `--strict` errors | 0 across 18 source files | `uv run mypy` | Very little yet — 18 files, most of them near-empty package inits |
+| Runtime dependencies | 3 (`pydantic`, `pydantic-settings`, `structlog`) | `pyproject.toml` | Final count. Deps are added per phase, each with an ADR |
+
+**Gate-failure proofs run this phase:** 3 of 3 (domain purity, application no-I/O, cache-key
+sensitivity). Each broken deliberately, observed red, restored.

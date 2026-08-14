@@ -1,0 +1,47 @@
+# Pre-commit is the fast feedback loop; CI is the authority. Every hook here also runs in
+# CI, because a hook can be bypassed with --no-verify and a CI job cannot.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  # why: gitleaks runs here AND in CI. A pre-commit hook is bypassable with --no-verify,
+  #      so it is a convenience, not a control. The CI run is the control.
+  #      alt: CI only (slower feedback, same guarantee)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy --strict
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: import-linter
+        name: import-linter (layer boundaries)
+        entry: uv run lint-imports
+        language: system
+        types: [python]
+        pass_filenames: false
