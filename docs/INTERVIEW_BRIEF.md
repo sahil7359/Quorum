@@ -672,3 +672,89 @@ that errors visibly.
 **Gate-failure proofs run this phase:** 3 of 3, one after a correction — swapping the audit
 lookup for a state lookup initially left everything green, which is what prompted the
 distinguishing test.
+
+---
+
+## Phase 7 — MCP server
+
+### Five questions
+
+**1. Why does your MCP server have no write path?**
+
+Because if `review_pull_request` could post to GitHub, any MCP client could bypass the human
+approval gate that the entire project exists to demonstrate — through a door I opened for
+convenience. So it's structural rather than a policy: the server holds three read-only
+callables, the graph behind it is built with `approval=None, publish=None` so it physically has
+no publish node, and a test parses the module's AST to assert it imports neither
+`GitHubMcpClient` nor `PublishNode`. It has nothing to post *with*, not merely nothing that
+posts.
+
+**2. Why publish `get_chunk`? It looks like an internal detail.**
+
+It's the tool I'd highlight, actually. Without it a `chunk_id` in a finding is an opaque token
+the caller has to trust — the citation is only verifiable by someone with my database. With
+it, any client can resolve a cited chunk back to its text, file and byte range. That turns
+"every finding is grounded" from something I assert into something the consumer can check. It's
+the difference between a claim and an auditable property, and it costs about fifteen lines.
+
+**3. You return `dropped` — the findings that failed grounding. Why expose failures?**
+
+My first instinct was to hide them, because a clean API returns findings rather than debris.
+But "the model tried to cite something it wasn't shown" is real information about that
+review's reliability, and a caller who never sees it can't distinguish a genuinely quiet
+review from a suppressed one. Same reasoning as returning `routing_reason` rather than only
+logging it: the caller deserves the rationale, not just the verdict.
+
+**4. How is publishing an MCP server different from consuming one?**
+
+Consuming is mostly defensive — an allowlist, a write guard, handling a server that changes
+under you. Publishing is interface design: once a tool schema is out, changing it breaks
+clients you can't see. So the schema is documented in `docs/MCP.md`, every tool has a
+description asserted by a test, and there's a test pinning the exact key set of the response
+payload so a field can't quietly disappear. I also test it the same way I tested the client —
+with a real MCP client over real stdio, which is the mirror of Phase 2 where a real client
+drove a fake GitHub server.
+
+**5. You did Phase 7 before Phase 6. Why?**
+
+Deliberately. Phase 6 needs merged pull requests carrying substantive human review comments,
+assembled from a rate-limited API, plus long local model runs — and its entire value is
+*measurement*. Started without enough budget it produces a harness and a TODO, or worse a
+number nobody actually measured, which is the specific failure I'm most determined to avoid.
+Phase 7 is self-contained and closes a Definition-of-Done item. Ordering is a convenience;
+getting a number wrong is not.
+
+### Most likely to be challenged
+
+> *"Your MCP server returns a review computed by a stubbed function in your tests, and its
+> `get_review` is an in-process dictionary. Is this actually a working server, or a schema
+> with a demo behind it?"*
+
+Both halves of that are fair and they land differently.
+
+The transport and the contract are real. A genuine MCP client completes a handshake, discovers
+four tools, calls them, and gets structured results back over stdio — and the graph that
+`review` wraps is the same one that produced real findings against Ollama in the Phase 4 smoke
+run. Stubbing the review function in the *transport* test is deliberate: it isolates the thing
+under test, and the review pipeline has its own tests.
+
+The persistence criticism is simply correct. `get_review` is an in-process dict, so it only
+finds reviews computed by the current process. Restart it and they're gone. That's the
+`ReviewCachePort` — defined in Phase 1, still unimplemented — and it's the same gap as the
+review cache generally, which means the cost controls in TechSpec §5 aren't enforced anywhere
+in code yet either. I'd rather state that plainly than describe it as "caching".
+
+So: the published interface is real and tested, the review behind it is real, and the memory
+between calls is not. Those are three separable claims and I'd keep them separate.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Tools published | 4, all read-only | `test_server_advertises_exactly_the_documented_tools` | — |
+| Write tools published | **0** | 4 independent tests incl. an AST import check | That the *web* path is safe — that's Phase 5's gate |
+| Tests passing | 462 | `uv run pytest` | Nothing about review quality |
+| mypy `--strict` errors | 0 across 79 files | `uv run mypy` | — |
+
+**Gate-failure proofs run this phase:** 3 of 3 — adding a write tool (3 red), flipping
+`posted_to_github` (1 red), removing repo validation (1 red).

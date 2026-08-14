@@ -823,3 +823,92 @@ Phase 6 (Trajectory eval) starts with:
   one thing that must not happen.
 - Still unmeasured: finding precision, finding recall, specialist routing accuracy, cost per
   review.
+
+---
+
+## Phase 7 — MCP server *(taken ahead of Phase 6, deliberately)*
+
+**Branch:** `phase/07-mcp-server` → merged to `main` with `--no-ff`
+**Suite:** 462 passed · mypy clean on 79 files · 6/6 contracts
+
+### Why out of order
+
+Phase 6 needs merged PRs carrying substantive human review comments — assembled from a
+rate-limited API — plus long local model runs, and its entire value is *measurement*. Done
+without enough budget it yields a harness and a `TODO`, or worse a number nobody measured.
+
+Phase 7 is self-contained, closes a Definition-of-Done item, and uses the write-path-free
+graph option built in Phase 5. Ordering is a convenience; getting a number wrong is not.
+
+### What was built
+
+Quorum published as an MCP server: `review_pull_request`, `get_review`, `list_ingested_repos`,
+`get_chunk`. Schema in `docs/MCP.md`. Tested with a **real MCP client over real stdio** — the
+mirror of Phase 2.
+
+**The surface has no write path, structurally.** Three read-only callables; the graph behind
+`review` is built with `approval=None, publish=None`; the module imports neither
+`GitHubMcpClient` nor `PublishNode`, asserted by a test that parses its AST.
+
+### Decisions I made that you did not specify
+
+| Decision | Why |
+| --- | --- |
+| `routing_reason` returned to the client, not just logged | Routing accuracy is a published metric; a caller deserves the rationale too. |
+| `dropped` returned to the client | "The model tried to cite something it wasn't shown" is information about reliability. A caller that never sees it cannot tell a quiet review from a suppressed one. |
+| `get_chunk` published | Lets a client resolve a cited chunk id without our database. Turns cite-or-drop from a claim into an auditable property. **This is the tool I would highlight.** |
+| Every response carries `posted_to_github: false` | A client should not have to read the README to learn we did not touch their repo. |
+| stdio only | Streamable HTTP arrives with FastAPI in Phase 8, where there is an ASGI app to mount it on. |
+| Server takes callables, not a graph | The transport is testable without a model, retriever or code host. |
+
+### What I was unsure about and guessed at
+
+- **`reviews` is an in-process dict.** `get_review` only finds reviews computed by *this*
+  process. Real persistence is the `ReviewCachePort`, still unimplemented.
+- **The stdio entrypoint module referenced in `docs/MCP.md`
+  (`app.interface.mcp_entrypoint`) does not exist yet** — the composition root lands in
+  Phase 8. `tests/support/quorum_mcp_stdio.py` is the runnable example until then. This is
+  flagged inline in the doc, but it is the one thing in `docs/MCP.md` a reader could try and
+  fail to run.
+- **`get_chunk` has no rate limiting.** It reads from our chunk store; on a public deployment
+  it is an enumeration surface. Phase 9/10 concern, noted now.
+
+### Gate proofs — 3 of 3
+
+| Break | Result |
+| --- | --- |
+| A `post_review_comment` tool added to the published surface | 3 tests **red** |
+| `posted_to_github` flipped to `true` | 1 test **red** |
+| Repo validation replaced with a bare constructor | 1 test **red** |
+
+### What Phase 6 starts with — scoped precisely
+
+Phase 6 (Trajectory eval) is **the only remaining gap in Phases 0–7**. It starts with:
+
+1. **A working pipeline.** `uv run python -m eval.smoke.live_review` runs a complete review
+   against local Ollama in ~16s and returns grounded findings.
+2. **`build_review_graph(..., approval=None, publish=None)`** gives the harness a graph with no
+   write path — what an eval should have.
+3. **The pattern to copy is `eval/retrieval/`**: golden set → metrics → runner → committed
+   baseline → gate split into pure comparison logic plus a slow CLI. Reuse
+   `check_regression`'s shape, including the corpus-fingerprint lesson.
+4. **The hard part is the golden set.** Needs merged PRs with substantive human review
+   comments. Unauthenticated GitHub REST gives 60 req/hour — enough to assemble and commit
+   fixtures, and fixtures are what make the eval reproducible. Suggested shape:
+   `eval/trajectory/goldenset/<owner>-<repo>-<pr>.json` holding the diff, the PR metadata, the
+   human review comments, and a hand-labelled expected specialist set.
+5. **Metrics owed:** finding precision, finding recall, specialist routing accuracy, tool-call
+   correctness, steps and cost per review.
+6. **`learn/06` must state** that human reviewers miss things, so recall is measured against an
+   **imperfect ceiling**.
+
+**If enough labelled PRs cannot be assembled, ship the harness, write `TODO: not yet run`, and
+say so plainly.** A plausible-looking metric that was never measured is the single worst thing
+that could be left here.
+
+### Cost note for whoever runs it
+
+A full 20-PR run against Ollama is roughly 20 × 3 model calls × ~7K tokens ≈ 400K+ tokens and
+perhaps 15–25 minutes of local GPU time. That is fine locally and would **exhaust the Groq free
+tier four times over** — which is exactly why the provider abstraction exists. Run it with
+`QUORUM_LLM_PROVIDER=ollama`, never Groq.
