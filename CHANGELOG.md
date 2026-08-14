@@ -89,3 +89,29 @@ it affects. This is the fast index for finding where something lives.
   and replaced with tests that exercise the real case.
 - Added `docs/adr/0003-guards-live-in-the-adapter.md` and `learn/02-mcp-client.md`.
 - Added dependency: `mcp>=1.9` (resolved to 2.0.0).
+
+## Phase 3 — Document RAG — 2026-08-14
+
+- Added `app/infrastructure/retrieval/chunker.py` — markdown chunking with chunk-level ids
+  traceable to `(repo, commit, file, section, byte offsets)`, heading breadcrumbs, code-fence
+  awareness, CRLF normalisation. Affects every citation and every retrieval number.
+- Added `app/infrastructure/retrieval/sparse.py` — hand-rolled BM25 with a tokenizer that
+  splits camelCase/snake_case identifiers while keeping the whole token. IDF clamped at zero.
+- Added `app/infrastructure/retrieval/fusion.py` — reciprocal rank fusion, deterministic
+  under ties.
+- Added `app/infrastructure/retrieval/dense.py` — `FastEmbedEmbedder` (bge-small, 384d, ONNX),
+  `HashEmbedder` for plumbing tests, `InMemoryChunkStore` (exhaustive scan, no index).
+- Added `app/infrastructure/retrieval/hybrid.py` — `HybridRetriever` and `FastEmbedReranker`.
+- Added `eval/retrieval/` — golden set (20 queries, section-level labels), metrics
+  (NDCG@5, Recall@5, Success@5), runner, and a regression gate split into pure comparison
+  logic plus a slow CLI.
+- Added `eval/corpus/` — **frozen** snapshot of `docs/`, refreshed only via `--snapshot`.
+- Added `eval/baselines/retrieval.json` — committed baseline from a real run.
+- **Measured: cross-encoder reranking loses.** NDCG@5 −0.0793, Recall@5 −0.0708, 89× latency.
+  Disabled by default. See `docs/adr/0004-rerank-disabled.md`.
+- **Fixed a self-referential eval:** the corpus was the live `docs/` tree, so writing the ADR
+  that recorded the result changed the result. Reports now carry a `corpus_sha` and the gate
+  raises `CorpusMismatch` instead of reporting a false regression.
+- Added `docs/adr/0004-rerank-disabled.md` and `learn/03-retrieval.md`.
+- Added dependency: `fastembed`.
+- Changed default `QUORUM_RERANK_ENABLED` to `false`.

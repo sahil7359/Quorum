@@ -69,7 +69,12 @@ class Settings(BaseSettings):
     rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     retrieval_top_k: int = Field(default=5, ge=1)
     retrieval_candidates: int = Field(default=30, ge=1)
-    rerank_enabled: bool = True
+    # why: measured, not assumed. The Phase 3 retrieval eval scored reranking at
+    #      NDCG@5 -0.0925 and Recall@5 -0.0958 against plain hybrid, for 91x the
+    #      latency (780ms vs 8.6ms/query). It is off by default and kept behind a flag
+    #      so the comparison stays reproducible. See docs/adr/0004-rerank-disabled.md.
+    #      alt: default on because cross-encoders usually help (true in general, false here)
+    rerank_enabled: bool = False
     chunker_version: str = "1"
 
     # --- Prompts ------------------------------------------------------------
