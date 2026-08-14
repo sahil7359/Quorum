@@ -25,14 +25,19 @@ def test_read_and_write_sets_are_disjoint() -> None:
     assert not (READ_TOOLS & WRITE_TOOLS)
 
 
-def test_write_surface_is_exactly_two_tools() -> None:
+def test_write_surface_is_exactly_three_tools() -> None:
     """The blast radius, stated as a number.
 
-    Quorum can post a review comment and post an issue comment. It cannot merge, close,
-    push, or delete. If this test fails, the answer to "what can it do?" has changed and
+    Quorum can open+submit a pull request review comment (a three-call sequence on the real
+    server: create, attach, submit) and post an issue comment. It cannot merge, close, push,
+    or delete. If this test fails, the answer to "what can it do?" has changed and
     docs/Security.md needs revisiting.
     """
-    assert {"add_pull_request_review_comment", "add_issue_comment"} == WRITE_TOOLS
+    assert {
+        "pull_request_review_write",
+        "add_comment_to_pending_review",
+        "add_issue_comment",
+    } == WRITE_TOOLS
 
 
 @pytest.mark.parametrize(
@@ -77,8 +82,8 @@ def test_unexpected_tools_is_empty_when_the_server_matches() -> None:
 
 
 def test_missing_tools_reports_read_tools_we_depend_on() -> None:
-    advertised = frozenset(ALLOWED_TOOLS - {"get_pull_request_diff"})
-    assert missing_tools(advertised) == {"get_pull_request_diff"}
+    advertised = frozenset(ALLOWED_TOOLS - {"pull_request_read"})
+    assert missing_tools(advertised) == {"pull_request_read"}
 
 
 def test_missing_tools_ignores_absent_write_tools() -> None:

@@ -128,6 +128,15 @@ class TestReads:
 
         assert "README.md" in contents
 
+    async def test_get_file_reads_the_embedded_resource_not_the_confirmation_text(self) -> None:
+        """The real server replies with a TextContent confirmation *and* an EmbeddedResource
+        carrying the real bytes. Returning the confirmation instead of the resource is exactly
+        the bug found live against pallets/click -- this proves it stays fixed."""
+        async with client() as c:
+            contents = await c.get_file(REPO, "README.md", ref="head5678")
+
+        assert "successfully downloaded" not in contents
+
     async def test_list_changed_files(self) -> None:
         async with client() as c:
             files = await c.list_changed_files(REPO, 42)
@@ -160,7 +169,7 @@ class TestAllowlist:
 
     async def test_missing_read_tool_refuses_to_connect(self) -> None:
         """A review that silently skipped the diff would look like a clean review."""
-        with pytest.raises(CodeHostError, match="get_pull_request_diff"):
+        with pytest.raises(CodeHostError, match="get_file_contents"):
             async with client(mode="missing"):
                 pass
 

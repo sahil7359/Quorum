@@ -18,16 +18,27 @@ from typing import Final
 
 READ_TOOLS: Final[frozenset[str]] = frozenset(
     {
-        "get_pull_request",
-        "get_pull_request_files",
-        "get_pull_request_diff",
+        # why: the real ghcr.io/github/github-mcp-server (v1.9.0, verified live against
+        #      pallets/click) consolidated get_pull_request / get_pull_request_diff /
+        #      get_pull_request_files into one method-dispatch tool. The granular names this
+        #      set used to hold were never real -- they were taken from documentation and the
+        #      live server refused to connect the first time this was checked, which is
+        #      exactly the failure HANDOFF.md's risk #1 predicted.
+        #      alt: keep the granular names and hope docs matched the server (they did not)
+        "pull_request_read",
         "get_file_contents",
     }
 )
 
 WRITE_TOOLS: Final[frozenset[str]] = frozenset(
     {
-        "add_pull_request_review_comment",
+        # why: same consolidation on the write side. Posting a review comment is now a
+        #      three-call sequence -- pull_request_review_write(create), then
+        #      add_comment_to_pending_review per finding, then
+        #      pull_request_review_write(submit_pending) -- so all three tool names need to
+        #      be allowlisted and writable, not just one.
+        "pull_request_review_write",
+        "add_comment_to_pending_review",
         "add_issue_comment",
     }
 )
