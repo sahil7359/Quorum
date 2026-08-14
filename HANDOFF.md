@@ -912,3 +912,127 @@ A full 20-PR run against Ollama is roughly 20 × 3 model calls × ~7K tokens ≈
 perhaps 15–25 minutes of local GPU time. That is fine locally and would **exhaust the Groq free
 tier four times over** — which is exactly why the provider abstraction exists. Run it with
 `QUORUM_LLM_PROVIDER=ollama`, never Groq.
+
+---
+
+# Run summary — Phases 4, 5 and 7 complete
+
+## Where the project stands
+
+| Phase | Status | Evidence |
+| --- | --- | --- |
+| Planning | ✅ | 11 documents + a critical re-read with 8 recorded changes |
+| 0 — Scaffolding | ✅ | Boundaries enforced two ways, 3/3 gate proofs |
+| 1 — Domain core | ✅ | Cite-or-drop as a type transition, 3/3 proofs |
+| 2 — MCP client | ✅ | 22 tests over real stdio, 3/3 proofs, 1 real bug found |
+| 3 — Document RAG | ✅ | Reranking measured and cut, 3/3 proofs, 1 real bug found |
+| 4 — Specialists + supervisor | ✅ | 34.86% context reduction measured, 5/5 proofs, 2 bugs found |
+| 5 — HITL + audit | ✅ | Durable resume across a process boundary, 3/3 proofs |
+| 6 — Trajectory eval | ⬜ **the remaining gap** | Scoped precisely in the Phase 7 handoff above |
+| 7 — MCP server | ✅ | No write path, 3/3 proofs |
+
+**462 tests · mypy `--strict` clean on 79 files · 6/6 import-linter contracts · retrieval gate PASS**
+
+`learn/00`–`05` and `07` written. ADRs 0001–0005. `CHANGELOG.md`, `docs/INTERVIEW_BRIEF.md`,
+`docs/Tracker.md`, `docs/Logging.md` and `docs/MCP.md` all current.
+
+## Numbers actually measured
+
+| Number | Value | Where |
+| --- | --- | --- |
+| Retrieval NDCG@5 (hybrid) | 0.5811 | `eval/baselines/retrieval.json` |
+| Retrieval Success@5 (hybrid) | 0.9500 | same — the metric closest to what Quorum needs |
+| Rerank delta NDCG@5 | **−0.0793** at 89× latency → cut | ADR-0004 |
+| Context reduction (AST scoping) | **34.86%** token-weighted | `eval/baselines/scoping.json` |
+| First live review | 3 calls, 6,967 tokens, 16.1s, 2 findings | `learn/04` addendum |
+
+**Still unmeasured:** finding precision, finding recall, specialist routing accuracy, cost per
+review. All Phase 6. They read `TODO: not yet measured` in the tracker and must stay that way
+until a real run fills them.
+
+## The three riskiest assumptions now baked in
+
+### 1. Nothing has ever touched real GitHub
+
+Unchanged from the last run and now more load-bearing, because Phase 5 built an approval gate
+and Phase 7 built a published server on top of the same fixtured contract. Argument names
+(`pullNumber`, `owner`) and response shapes (`head.sha`) come from documentation. The MCP
+*protocol* layer is genuinely verified; the GitHub *payload* layer is assumed.
+
+**Cost to reverse:** low but urgent — an hour with a token, correcting `github_client.py` and
+the fake server in tenndem. Do it before Phase 6 builds a golden set on the same assumptions.
+
+### 2. The audit table's append-only guarantee is SQLite-specific
+
+Enforced by SQLite triggers. Postgres uses a *different mechanism* (`CREATE RULE ... DO INSTEAD
+NOTHING`). **The Postgres rules have never executed.** `test_update_is_refused_by_the_database`
+and `test_delete_is_refused_by_the_database` test a mechanism, and the mechanism changes.
+
+**Cost to reverse:** half a session. Write the Postgres adapter, re-run both tests against it,
+do not assume the SQLite green carries over.
+
+### 3. Cost controls are documented but not implemented
+
+`TechSpec.md` §5 describes SHA caching, a daily token budget and a live-review cap.
+`ReviewCachePort` and `BudgetPort` are defined in `app/domain/ports.py` with **no adapters**.
+Nothing in code enforces any of it. The MCP server's `get_review` is an in-process dict.
+
+**Cost to reverse:** one session. This is Phase 8/9 work and the ports already exist, but until
+then the "$0/month" claim rests on nobody calling the live path.
+
+## Three bugs the "prove it fails" rule caught this run
+
+1. **A README-only PR summoned the test-coverage reviewer** — the heuristic counted any
+   non-test file as code.
+2. **Nine bare log-event strings** in earlier phases, found the moment the AST test existed.
+3. **A gate proof failed to fail, twice** — the cite-or-drop wiring break was neutralised by
+   incremental corpus construction, and the publish-guard break was invisible because every
+   test called the node with empty state. Both needed a *different* break, and one needed a new
+   test that distinguishes the right implementation from the wrong one.
+
+The pattern, now three-for-three across the project: **green tells you nothing until you have
+watched it go red for the specific reason you care about.**
+
+---
+
+## What I need from you for deployment
+
+You said you would handle deployment inputs at the end. Here is the complete list, in the
+order they unblock things.
+
+### Credentials (none of these exist in the dev environment)
+
+| Input | Needed for | Notes |
+| --- | --- | --- |
+| **GitHub fine-grained PAT**, `public_repo` scope only | Phase 2 verification, the write path, Phase 6 golden set | Never a classic full-scope token. Goes in `QUORUM_GITHUB_TOKEN`, reaches the MCP server by environment, never argv. |
+| **Groq API key** | Production inference | `QUORUM_GROQ_API_KEY`. The Groq adapter has **never run** — verify `usage` field names on first call. |
+| **Neon Postgres connection string** | Audit + chunk store in production | `QUORUM_DATABASE_URL`. Needs the `pgvector` extension enabled. |
+| **Render + Vercel accounts** | Hosting | Free tiers. Render is 512MB RAM — that constraint drove the fastembed choice. |
+
+### Decisions only you can make
+
+1. **The six gallery repositories.** Deferred from planning (R7) on purpose — picking them
+   before the metrics existed risked choosing repos that flatter the system. Criteria: real
+   documentation worth retrieving against, *and* merged PRs carrying substantive review
+   comments. The second is the harder constraint.
+2. **Whether to re-enable reranking.** Cut on measured evidence (ADR-0004), but that evidence
+   is my own corpus and my own labels. If the gallery repos behave differently it deserves
+   re-measuring; the flag is still there.
+3. **Whether synthesis should call the 70B model.** I made it deduplicate and rank in code
+   instead, judging a large-model call to reorder a sortable list not worth the tokens. The
+   plan said otherwise and `SYNTHESIS_SYSTEM_PROMPT` is written and unused. Your call.
+4. **Commit messages.** Every commit ends `[MESSAGE PENDING — see HANDOFF.md]`. The per-phase
+   `CHANGELOG.md` entries are the "what changed" summaries. `git rebase -i --root`.
+
+### Do these in this order
+
+```
+1. GitHub PAT      → verify the four read paths against the real MCP server (1 hour)
+2. Phase 6         → golden set + trajectory eval, run locally against Ollama, never Groq
+3. Phase 8         → FastAPI, composition root, ReviewCachePort + BudgetPort adapters
+4. Postgres        → audit + chunk store adapters, re-prove append-only there
+5. Groq key        → verify the adapter, then Phases 9–13
+```
+
+Phase 6 before Phase 8 because the eval should run against a graph with no write path, which
+already exists — and because every number in the README depends on it.
