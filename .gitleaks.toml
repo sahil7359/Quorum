@@ -1,0 +1,25 @@
+title = "Quorum gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "groq-api-key"
+description = "Groq API key"
+regex = '''gsk_[A-Za-z0-9]{20,}'''
+tags = ["key", "groq"]
+
+[[rules]]
+id = "github-fine-grained-pat"
+description = "GitHub fine-grained personal access token"
+regex = '''github_pat_[A-Za-z0-9_]{22,}'''
+tags = ["key", "github"]
+
+[allowlist]
+description = "Documentation and fixtures that intentionally contain token-shaped strings"
+paths = [
+  '''\.env\.example$''',
+  '''docs/.*\.md$''',
+  '''learn/.*\.md$''',
+  '''tests/.*''',
+]

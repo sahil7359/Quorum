@@ -70,10 +70,10 @@ Heuristics run first and are always trusted:
 
 ```python
 signals = {
-  "paths_touching_security": ["app/auth/login.py"],       # glob match
-  "source_changed_without_tests": True,
-  "added_lines": 213,
-  "new_public_symbols": ["authenticate_user"],
+    "paths_touching_security": ["app/auth/login.py"],  # glob match
+    "source_changed_without_tests": True,
+    "added_lines": 213,
+    "new_public_symbols": ["authenticate_user"],
 }
 ```
 
@@ -132,7 +132,7 @@ The output is a `Review` of `Finding`s, each with a `Citation` resolving to
 ### 8. `interrupt()` — the graph stops
 
 ```python
-decision = interrupt({"findings": [...]})   # durable, Postgres-checkpointed
+decision = interrupt({"findings": [...]})  # durable, Postgres-checkpointed
 ```
 
 State is checkpointed to Postgres. **The process may now die.** A free-tier Render instance

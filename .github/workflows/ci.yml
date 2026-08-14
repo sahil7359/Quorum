@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  quality:
+    name: lint · types · boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - run: uv sync --all-extras
+
+      - name: ruff (lint)
+        run: uv run ruff check .
+
+      - name: ruff (format check)
+        run: uv run ruff format --check .
+
+      - name: mypy --strict
+        run: uv run mypy
+
+      - name: import-linter (layer boundaries)
+        run: uv run lint-imports
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # why: gitleaks runs in CI as well as pre-commit. A pre-commit hook is bypassable with
+      #      --no-verify; this job is not.
+      #      alt: pre-commit only (faster, defeated by one flag)
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tests:
+    name: test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - run: uv sync --all-extras
+
+      - name: pytest
+        run: uv run pytest --cov=app --cov-report=term-missing
+
+  # Added in Phase 11: retrieval eval, trajectory gate, container build, Postgres service.
