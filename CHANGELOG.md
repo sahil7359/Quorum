@@ -149,3 +149,21 @@ it affects. This is the fast index for finding where something lives.
   **First live run:** 3 model calls, 6,967 tokens, 16.1s, 2 findings, 0 dropped. One finding
   aptly grounded, one misgrounded — demonstrating that a citation proves grounding, not
   aptness. Explicitly a smoke run, not a metric.
+
+## Phase 5 — HITL + audit — 2026-08-14
+
+- Added `app/infrastructure/persistence/audit.py` — `SqliteAuditLog`, append-only enforced by
+  database triggers *and* by the adapter having no mutation method. A rejection is
+  distinguishable from no decision; the latest decision wins.
+- Added `app/application/agents/approval.py` — `ApprovalNode` (durable `interrupt()`, audits
+  every proposal and decision) and `PublishNode` (the only write path). Plus
+  `assert_publishable` for callers outside the graph.
+- Changed `app/application/agents/state.py` — `corpus` and `visible` are now keyed by plain
+  strings. The checkpoint serialiser cannot encode a frozen-dataclass dict key, so durable
+  resumption constrains what state may contain. Value objects are rebuilt in `SynthesiseNode`.
+- Changed `app/application/agents/graph.py` — `approval` and `publish` are **optional**
+  stages, so a caller that only wants findings gets a graph with no write path at all.
+- Added `tests/integration/test_hitl_and_audit.py` — 25 tests including resumption across a
+  real process boundary (two savers, two graphs, one SQLite file).
+- Added dependency: `langgraph-checkpoint-sqlite`.
+- Tests: 412 → 437.

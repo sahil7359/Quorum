@@ -122,7 +122,7 @@ def build(
     tracer = NullTracer()
     return build_review_graph(
         ingest=IngestNode(
-            code_host=host,  # type: ignore[arg-type]  # fake satisfies CodeHostPort structurally
+            code_host=host,
             logger=logger,
             tracer=tracer,
             max_diff_lines=1500,
