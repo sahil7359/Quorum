@@ -28,9 +28,9 @@ reviewer that would have caught the problem never ran.
 from it.**
 
 ```python
-floor, reason = heuristic_floor(compute_signals(diff))   # always included
-decision = floor | llm_suggested                          # union, never intersection
-removal_attempted = floor - llm_suggested                 # ignored, and logged at WARN
+floor, reason = heuristic_floor(compute_signals(diff))  # always included
+decision = floor | llm_suggested  # union, never intersection
+removal_attempted = floor - llm_suggested  # ignored, and logged at WARN
 ```
 
 The heuristic signals are:

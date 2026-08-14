@@ -739,3 +739,87 @@ kind of thing you only see by running it.
 **What this is not:** a metric. One hand-written diff, one model, `n=1`. It says the stack
 holds together; it says nothing about review quality. That evidence comes in Phase 6, against
 merged pull requests carrying real human review comments.
+
+---
+
+## Phase 5 — HITL + audit
+
+**Branch:** `phase/05-hitl-audit` → merged to `main` with `--no-ff`
+**Suite:** 437 passed · mypy clean on 76 files · 6/6 contracts · retrieval gate PASS
+
+### What was built, in plain language
+
+The approval gate. The graph now runs `ingest → route → specialists → synthesise → approval →
+publish`, where `approval` blocks on a **durable** `interrupt()` and `publish` is the only
+write path. Behind it, an append-only audit table.
+
+The load-bearing test builds **two separate savers and two separate graph objects over the
+same SQLite file** — the second knows nothing except what was checkpointed. That is the
+free-tier instance sleeping and waking up, and it is why the checkpointer is durable rather
+than in-memory.
+
+### Decisions I made that you did not specify
+
+| Decision | Why |
+| --- | --- |
+| **SQLite for the audit table, not Postgres** | Durability and append-only triggers, with no service dependency in local dev or CI. **This is a deferral, not a decision against Postgres** — see the risk below. |
+| `approval` and `publish` are **optional** graph stages | A caller that only wants findings (MCP server, eval harness) gets a graph with *no write path at all*, rather than a write path it is trusted not to reach. Absence beats discipline. |
+| No findings → no interrupt | Stopping to ask a human about an empty list is how an approval gate becomes noise, and a gate people click through is not a gate. |
+| No timeout, no auto-approve, no `approve_all` | A timeout that approves is approval with extra steps. |
+| A rejection is returned, not `None` | "The human said no" and "nobody has looked" are different states and must not both read as absence. |
+| Refusals are themselves audited | The record has to show what was refused, not only what was posted. |
+| Graph state keyed by strings, not value objects | Forced by the checkpoint serialiser. Value objects are rebuilt at the domain boundary. |
+
+### ⚠ Risk introduced this phase: SQLite audit ≠ Postgres audit
+
+The append-only guarantee is currently enforced by **SQLite triggers**. Postgres uses a
+*different mechanism* (`CREATE RULE ... DO INSTEAD NOTHING`, as written in `docs/Schema.md`).
+
+**The Postgres append-only rules have never been executed.** When the Postgres adapter lands,
+`test_update_is_refused_by_the_database` and `test_delete_is_refused_by_the_database` must be
+re-run against it — they are testing a mechanism, and the mechanism changes. Do not assume
+the SQLite green carries over. Docker is up and `pgvector/pgvector:pg16` is available.
+
+### Bugs and surprises
+
+1. **`TypeError: Dict key must a type serializable with OPT_NON_STR_KEYS`** — graph state held
+   `dict[ChunkId, Chunk]` and the checkpoint serialiser cannot encode a frozen dataclass as a
+   dict key. Durable resumption constrains what state may contain, which I had not considered
+   when designing state in Phase 4. Only surfaced because the test crossed a real process
+   boundary.
+2. **A gate proof failed to fail, for the third time.** Swapping the publish node's audit
+   lookup for a state lookup left all six publish tests green — they all call the node with no
+   `approvals` in state, so both implementations refused for the same reason. Added
+   `test_an_approval_present_only_in_state_does_not_authorise_a_post`, which forges an approval
+   in state with an empty audit log. Now the proof turns red.
+
+### What I was unsure about and guessed at
+
+- **`approval_for` returns the latest decision by `audit_id`.** If a human rejects, then
+  re-approves after an edit, the approval wins. I believe that is right; if you disagree, the
+  ordering is one `ORDER BY` clause.
+- **The resume payload shape** (`[{finding_id, action, actor, note}]`) is mine. Phase 8's API
+  has to produce it, and nothing yet validates it end to end from HTTP.
+- **`ApprovalNode` writes `proposed` rows before the interrupt**, so a crash between the audit
+  write and the checkpoint leaves proposed rows for a run that never paused. Harmless (audit
+  is append-only and over-recording is safe) but worth knowing when reading the table.
+- **No `ReviewCachePort` or `BudgetPort` adapter yet.** Both are still defined-and-unimplemented.
+  The cost controls described in `TechSpec.md` §5 are **not enforced anywhere in code**.
+
+### What the next phase starts with
+
+Phase 6 (Trajectory eval) starts with:
+
+- A complete review pipeline that runs end to end against real Ollama
+  (`uv run python -m eval.smoke.live_review`) and returns grounded findings.
+- `build_review_graph(..., approval=None, publish=None)` gives the eval harness a graph with
+  **no write path**, which is what an eval should have.
+- `eval/retrieval/` as the pattern to copy: golden set, metrics, runner, committed baseline,
+  and a gate split into pure comparison logic plus a slow CLI.
+- **The hard part is the golden set.** It needs merged PRs carrying substantive human review
+  comments. Unauthenticated GitHub REST allows 60 requests/hour, which is enough to assemble
+  and commit fixtures. **If enough labelled PRs cannot be assembled, ship the harness with
+  `TODO: not yet run` and say so** — a plausible-looking metric that was never measured is the
+  one thing that must not happen.
+- Still unmeasured: finding precision, finding recall, specialist routing accuracy, cost per
+  review.

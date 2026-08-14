@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TypedDict
 
 from app.domain.entities import (
+    Approval,
     CandidateFinding,
     Chunk,
     Diff,
@@ -19,7 +20,7 @@ from app.domain.entities import (
     RepoRef,
     RoutingDecision,
 )
-from app.domain.values import ChunkId, RunId, SpecialistKind, TokenUsage
+from app.domain.values import RunId, RunStatus, TokenUsage
 
 
 class ReviewState(TypedDict, total=False):
@@ -48,15 +49,26 @@ class ReviewState(TypedDict, total=False):
 
     # -- specialists ---------------------------------------------------------
     candidates: list[CandidateFinding]
-    corpus: dict[ChunkId, Chunk]
+    # why: keyed by plain strings, not ChunkId/SpecialistKind. Graph state is serialised
+    #      into the checkpointer so a review can resume in another process, and the
+    #      serialiser cannot encode a frozen-dataclass dict key. Value objects are
+    #      rebuilt at the domain boundary in SynthesiseNode.
+    #      alt: keep value objects in state (cleaner to read, breaks durable interrupt)
+    corpus: dict[str, Chunk]
     # The per-specialist visibility map that cite-or-drop needs. Built here, in the graph,
     # from what retrieval actually returned to each specialist -- never from the whole corpus.
-    visible: dict[SpecialistKind, list[ChunkId]]
+    visible: dict[str, list[str]]
     failed_specialists: list[str]
 
     # -- synthesis -----------------------------------------------------------
     findings: list[Finding]
     dropped: list[str]
+
+    # -- approval and publish ------------------------------------------------
+    approvals: list[Approval]
+    posted: list[str]
+    refused: list[str]
+    status: RunStatus
 
     # -- accounting ----------------------------------------------------------
     usage: list[TokenUsage]

@@ -2,7 +2,7 @@
 
 Kept current as work proceeds. Last updated: **2026-08-14**.
 
-> **Phases 0-4 complete and green.** No LLM has produced a review yet -- every graph test
+> **Phases 0-5 complete and green.** No LLM has produced a review yet -- every graph test
 > runs against a fake model, so finding precision/recall and routing accuracy are still
 > unmeasured. See HANDOFF.md.
 
@@ -17,7 +17,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | 2 | MCP client | ✅ | `phase/02-mcp-client` | 196 passed | ✅ `02-mcp-client.md` | 0003 |
 | 3 | Document RAG | ✅ | `phase/03-document-rag` | 257 passed | ✅ `03-retrieval.md` | 0004 |
 | 4 | Specialists + supervisor | ✅ | `phase/04-multi-agent` | 404 passed | ✅ `04-multi-agent.md` | 0005 |
-| 5 | HITL + audit | ⬜ | — | — | `05-hitl-and-audit.md` | — |
+| 5 | HITL + audit | ✅ | `phase/05-hitl-audit` | 437 passed | ✅ `05-hitl-and-audit.md` | — |
 | 6 | Trajectory eval | ⬜ | — | — | `06-trajectory-eval.md` | — |
 | 7 | MCP server | ⬜ | — | — | `07-mcp-server.md` | — |
 | 8 | Serving | ⬜ | — | — | `08-serving.md` | — |
@@ -36,8 +36,8 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | MCP server published | ⬜ | Phase 7 |
 | NDCG@5 rerank delta reported honestly | ✅ | **−0.0793** — reranking lost and was cut. ADR-0004 |
 | Trajectory eval gating CI vs committed baseline | ⬜ | Phase 6 + 11 |
-| HITL approval on every write path + audit log | ⬜ | Phase 5 |
-| `learn/00`–`learn/13` complete | 🟡 | 5 of 14 |
+| HITL approval on every write path + audit log | ⚠ | Built and tested — durable interrupt resumes across a process boundary, audit append-only at the DB. **Never exercised against real GitHub** (no token). |
+| `learn/00`–`learn/13` complete | 🟡 | 6 of 14 |
 | README with real numbers and real limitations | ⬜ | Phase 13 |
 | $0/month | ⬜ | verified at Phase 13 |
 

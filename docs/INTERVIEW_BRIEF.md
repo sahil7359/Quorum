@@ -576,3 +576,99 @@ system of unknown review quality.
 break the cite-or-drop wiring stayed green because the corpus is built incrementally; the real
 failure shape lives one node later, in synthesis. Second time a gate proof has taught me
 something a passing test could not.
+
+---
+
+## Phase 5 — HITL + audit
+
+### Five questions
+
+**1. Why does the checkpointer need to be durable? Isn't an in-memory pause simpler?**
+
+Much simpler, and it would fail in production the first time it mattered. The deployment
+target is a free-tier instance that sleeps. A review proposed at 14:00 and approved at 19:00
+has to resume in a *different process*, and an in-memory pause loses it — which surfaces to
+the user as "the review disappeared", the worst kind of bug because it's silent. The test
+builds two separate savers and two separate graph objects over the same SQLite file, so the
+second graph knows nothing except what was checkpointed. That's as close to a slept-and-woke
+instance as I can get without killing a process.
+
+**2. Why is the audit a table rather than a log line?**
+
+Because logs rotate and the answer to "why did it post that?" has to outlive log retention.
+They're genuinely different mechanisms with different readers and different retention: logs
+are for me debugging at 1am and are sampled; audit is for anyone asking what the agent did,
+and is never sampled and never deleted. Append-only is enforced twice — database triggers
+that raise on UPDATE and DELETE, and the adapter simply having no mutation method, so the
+application has no vocabulary for it. There's a test asserting that absence.
+
+**3. Your publish node re-reads the audit log instead of using the approvals already in
+state. Isn't that a redundant query?**
+
+It is, and it's deliberate. State travelled through a checkpoint and a resume to reach the
+publish node; the audit table is the record of what a human actually decided. The failing
+case is a forged approval present in state and absent from the audit log — audit-reading
+refuses it, state-trusting posts it. I'd add that I only *proved* this mattered because a
+gate proof failed: swapping the audit lookup for a state lookup left every existing publish
+test green, because they all called the node with no approvals in state, so both
+implementations refused for the same reason. The design decision I'd written a paragraph
+justifying wasn't load-bearing in any test until I wrote the one that distinguishes them.
+
+**4. What happens if nobody ever responds?**
+
+Nothing is posted, forever, and that's correct behaviour rather than a bug — it has a test.
+There's deliberately no timeout that auto-approves, because a timeout that approves is just
+approval with extra steps. Similarly there's no `approve_all` and no severity threshold below
+which the machine posts unasked. The one concession to usability is that a review with zero
+findings doesn't interrupt at all: stopping to ask a human about an empty list is the fastest
+way to make an approval gate feel like noise, and a gate people click through isn't a gate.
+
+**5. What did durable resumption force you to change?**
+
+The graph state. It held `dict[ChunkId, Chunk]`, and the checkpoint serialiser can't encode a
+frozen dataclass as a dict key — the first run of the resumption test died with
+`Dict key must a type serializable with OPT_NON_STR_KEYS`. State now carries plain strings and
+the value objects are rebuilt at the domain boundary in the synthesis node. The general lesson
+is that durable resumption constrains what state may contain, and I hadn't thought about that
+when I designed the state a phase earlier. It only surfaced because the test crossed a real
+process boundary; a test reusing one saver would never have serialised anything.
+
+### Most likely to be challenged
+
+> *"You've built an approval gate for a system that has never posted anything to a real
+> GitHub repository. The `CodeHostPort` write path has only ever been exercised against your
+> own fake. How do you know the gate guards anything real?"*
+
+Fair, and I'd split it into two claims that have very different evidence.
+
+The claim I can defend: **the gate is correctly wired, and it is the only path to a write.**
+`post_review_comment` requires an `Approval` as a *required argument*, so an unauthorised
+write isn't something you can forget to check — it's something you can't express. The client
+itself refuses write tools without authorisation (Phase 2), the publish node re-reads the
+audit log, and the audit table refuses mutation at the database level. Four independent
+mechanisms, each with a test proven to fail. And `approval`/`publish` are optional graph
+stages, so the MCP server in Phase 7 will get a graph with no write path at all rather than
+one it's trusted not to reach.
+
+The claim I can't defend yet: **that the real GitHub MCP server accepts what I send it.**
+Argument names and response shapes are fixtured from documentation, and no token exists in
+this environment. If `add_pull_request_review_comment` takes different parameters than I
+assume, the write path fails on first contact — loudly, at least, rather than silently
+posting something wrong.
+
+So the honest summary: the *authorisation* logic is real and tested; the *transport* is
+assumed. Those fail in opposite directions, and I'd rather have the untested half be the one
+that errors visibly.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Tests passing | 437 | `uv run pytest` | Nothing about review quality |
+| Independent controls on the write path | 4 | Approval-as-argument, client allowlist, publish guard, DB triggers — each with a failing proof | That the real GitHub API accepts our calls |
+| mypy `--strict` errors | 0 across 76 files | `uv run mypy` | — |
+| Findings posted to a real repository | **0** | No token exists | — |
+
+**Gate-failure proofs run this phase:** 3 of 3, one after a correction — swapping the audit
+lookup for a state lookup initially left everything green, which is what prompted the
+distinguishing test.

@@ -12,6 +12,7 @@ import inspect
 
 import pytest
 
+from app.application.agents import approval as approval_module
 from app.application.agents import nodes as nodes_module
 from app.application.agents.graph import NODE_TYPES
 from app.application.agents.nodes import TracedNode
@@ -47,7 +48,8 @@ class TestEveryNodeIsTraced:
         """
         defined = {
             obj
-            for obj in vars(nodes_module).values()
+            for module in (nodes_module, approval_module)
+            for obj in vars(module).values()
             if inspect.isclass(obj) and issubclass(obj, TracedNode) and obj is not TracedNode
         }
         assert defined == set(NODE_TYPES), (

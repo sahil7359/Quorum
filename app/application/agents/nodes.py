@@ -251,8 +251,8 @@ class SpecialistsNode(TracedNode):
     async def run(self, state: ReviewState) -> dict[str, object]:
         decision = state["routing"]
         candidates: list[CandidateFinding] = []
-        corpus: dict[ChunkId, Chunk] = {}
-        visible: dict[SpecialistKind, list[ChunkId]] = {}
+        corpus: dict[str, Chunk] = {}
+        visible: dict[str, list[str]] = {}
         usage: list[TokenUsage] = []
         failed: list[str] = []
 
@@ -284,9 +284,9 @@ class SpecialistsNode(TracedNode):
                 usage.append(result.usage)
 
             # Visibility is recorded per specialist from what retrieval actually returned.
-            visible[specialist] = [scored.chunk_id for scored in result.offered]
+            visible[specialist.value] = [str(scored.chunk_id) for scored in result.offered]
             for scored in result.offered:
-                corpus[scored.chunk_id] = scored.chunk
+                corpus[str(scored.chunk_id)] = scored.chunk
 
         if len(failed) == len(decision.specialists) and decision.specialists:
             raise AllSpecialistsFailedError(
@@ -316,11 +316,14 @@ class SynthesiseNode(TracedNode):
         super().__init__(logger=logger, tracer=tracer)
 
     async def run(self, state: ReviewState) -> dict[str, object]:
-        result = ground_candidates(
-            state.get("candidates", []),
-            corpus=state.get("corpus", {}),
-            visible=state.get("visible", {}),
-        )
+        # Rebuild value objects at the domain boundary. State carries strings so it can
+        # be checkpointed; the domain takes ChunkId and SpecialistKind.
+        corpus = {ChunkId(key): chunk for key, chunk in state.get("corpus", {}).items()}
+        visible = {
+            SpecialistKind(name): [ChunkId(value) for value in ids]
+            for name, ids in state.get("visible", {}).items()
+        }
+        result = ground_candidates(state.get("candidates", []), corpus=corpus, visible=visible)
 
         for dropped in result.dropped:
             self._safe_log(

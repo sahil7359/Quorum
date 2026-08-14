@@ -156,6 +156,7 @@ class FakeCodeHost:
     diff: Diff | None = None
     files: dict[str, str] = field(default_factory=dict)
     file_errors: set[str] = field(default_factory=set)
+    posted: list[tuple[str, object]] = field(default_factory=list)
 
     async def get_pull_request(self, repo: RepoRef, number: int) -> PullRequest:
         assert self.pull_request is not None
@@ -169,3 +170,16 @@ class FakeCodeHost:
         if path in self.file_errors:
             raise CodeHostError(f"cannot fetch {path}")
         return self.files.get(path, "")
+
+    async def post_review_comment(
+        self, repo: RepoRef, number: int, finding: object, *, approval: object
+    ) -> str:
+        """Records the post. A test asserting "nothing was posted" needs somewhere to look."""
+        self.posted.append((str(getattr(finding, "finding_id", "?")), approval))
+        return f"comment-{len(self.posted)}"
+
+    async def post_summary_comment(
+        self, repo: RepoRef, number: int, body: str, *, approvals: Sequence[object]
+    ) -> str:
+        self.posted.append(("summary", body))
+        return f"issue-comment-{len(self.posted)}"
