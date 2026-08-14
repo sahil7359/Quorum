@@ -1,0 +1,45 @@
+# Agent tooling — ignored from the first commit, per project rules.
+.claude/
+.claude-trace/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local model + retrieval caches (large, reproducible)
+.cache/
+models/
+.fastembed_cache/
+
+# Eval scratch — committed baselines live in eval/baselines/ and are NOT ignored
+eval/_runs/
+eval/_scratch/
+
+# Node / frontend
+node_modules/
+.next/
+out/
+.vercel/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
