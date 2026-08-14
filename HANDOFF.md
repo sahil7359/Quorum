@@ -152,3 +152,86 @@ Phase 1 (Domain core) starts with:
 - `docs/Schema.md` §2.1 already specifies the chunk-id derivation and its five invariants.
   Phase 1 should define the `ChunkId` value object to match it exactly; Phase 3 implements
   the chunker that produces them.
+
+---
+
+## Phase 1 — Domain core
+
+**Branch:** `phase/01-domain-core` → merged to `main` with `--no-ff`
+**Suite:** 133 passed · mypy `--strict` clean on 27 files · 6/6 contracts kept
+
+### What was built, in plain language
+
+The vocabulary of the system, with no dependencies beyond the standard library:
+`values.py` (identifiers, enums, usage accounting), `entities.py` (pull request, diff,
+chunk, finding, review, approval, audit), `grounding.py` (cite-or-drop), `ports.py` (11
+Protocol ports), `errors.py`.
+
+The two things that matter:
+
+1. **Cite-or-drop is a type transition.** `CandidateFinding` is untrusted model output with
+   `chunk_id: str | None`. `Finding` has `citation: Citation` — not optional, not ever. The
+   only route between them is `ground_candidates()`, which drops what it cannot ground. The
+   invariant survives a wrong caller because a `Finding` with no citation is a `TypeError`.
+2. **Chunk identity is chunk-level.** `sha256("{repo}@{sha}:{path}#{section}@{start}-{end}")[:16]`.
+   The byte offsets are the whole point — without them every citation degrades to "somewhere
+   in this document".
+
+### Decisions I made that you did not specify
+
+| Decision | Why |
+| --- | --- |
+| Two finding types rather than one with an optional citation | Makes cite-or-drop unforgeable rather than remembered. It also pays off in Phases 7 and 8, where findings reach consumers by two more paths that an assertion in synthesis would not cover. |
+| `visible` is **per specialist**, not a global corpus check | A model can cite a *real* chunk it was never shown. My first version only checked existence, which misses this entirely. This is the subtlest guard in the system. |
+| Drops are retained and counted (`GroundingResult.drop_rate`) | "How often does the model try to cite something it should not" is a Phase 6 number, and it is invisible if you filter silently. |
+| `CodeHostPort` write methods take `approval: Approval` as a **required argument** | An unauthorised write becomes inexpressible rather than merely forbidden. |
+| `Approval.authorises(finding)` lives on the entity | The publish guard asks the approval rather than trusting the graph. Checks both identity and `payload_hash`, so edited text loses its approval. |
+| `RoutingDecision` refuses an empty reason, and refuses to omit `correctness` | Routing accuracy is a published metric; a decision with no rationale is not debuggable. |
+| `Severity.rank` rather than natural ordering | `StrEnum` sorts `high < info < low < medium`. Backwards, and it fails silently. |
+
+### Corrections to earlier documents
+
+- **`docs/Schema.md` was wrong.** It claimed a chunk id "resolves back to" its locator. A
+  hash is not reversible. Reworded to *verifiable against*; test renamed
+  `test_chunk_id_verifies_against_its_locator`. Worth knowing because you would have been
+  asked to demonstrate the round trip.
+- `test_chunk_never_spans_files` is deferred to Phase 3 and marked as such in `Schema.md`.
+  At this layer it is structurally impossible (a locator names exactly one `file_path`), so
+  the meaningful assertion is against the real chunker.
+
+### What I was unsure about and guessed at
+
+- **`deduplicate()` keys on `(chunk_id, file_path, line_start)`.** Two specialists flagging
+  the same issue at the same place with *different* citations will not collapse. I judged
+  duplicate-but-differently-grounded findings to be genuinely different information. If
+  Phase 6 shows this producing noise, the key is the thing to change.
+- **`is_test_file` is a heuristic biased towards over-matching.** A false positive costs one
+  extra specialist call; a false negative costs a missed review. I shipped a real bug here
+  first (enumerated `.test.ts`, missed `.test.tsx`), caught by its own test — it now matches
+  `".test." in stem` instead of enumerating extensions.
+- **`Finding.confidence` is model-reported and I do not trust it.** It is used only as a
+  ranking tiebreaker after severity, never as a threshold. If Phase 6 shows it is noise, drop
+  it from `rank_key` rather than trying to calibrate it.
+
+### Gate-failure proofs — 3 of 3 run
+
+| Break introduced | Observed |
+| --- | --- |
+| `ChunkLocator.canonical()` rewritten to a file-level form | **4 tests failed**, incl. `test_offsets_disambiguate_chunk_ids` |
+| Per-specialist visibility check replaced with `if False:` | **2 tests failed**, incl. `test_real_chunk_not_shown_to_this_specialist_is_dropped` |
+| `ClockPort.now()` given a real implementation | `test_port_methods_have_no_implementation[ClockPort]` **failed** |
+
+All restored; suite green afterwards.
+
+### What the next phase starts with
+
+Phase 2 (MCP client) starts with:
+
+- `CodeHostPort` already defined, including the approval-as-argument shape. The adapter has
+  to satisfy that signature, which is the point.
+- `Diff`, `ChangedFile`, `DiffHunk`, `PullRequest`, `RepoRef` ready to be parsed into.
+- `CodeHostError` and `ToolNotAllowedError` already defined.
+- **No `GITHUB_TOKEN`.** The plan is a fake MCP server built with the real `mcp` SDK speaking
+  real stdio, so the protocol is genuinely exercised without a credential. The official
+  GitHub MCP server path will be written but **cannot be verified this run** — that must be
+  said plainly in the Phase 2 notes rather than implied to work.

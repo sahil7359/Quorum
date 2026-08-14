@@ -174,3 +174,96 @@ have nothing to check.
 
 **Gate-failure proofs run this phase:** 3 of 3 (domain purity, application no-I/O, cache-key
 sensitivity). Each broken deliberately, observed red, restored.
+
+---
+
+## Phase 1 — Domain core
+
+### Five questions
+
+**1. Why two finding types instead of one with an optional citation?**
+
+Because with `citation: Citation | None`, "every surfaced finding is grounded" is a rule I
+have to remember to enforce, at every call site, forever. With two types it's a transition
+that can fail. `CandidateFinding` is what the model returned — untrusted, citation optional.
+`Finding` has `citation: Citation`, not optional, so constructing one without a citation is a
+TypeError. The only path between them is `ground_candidates()`, which drops what it can't
+ground. The invariant holds even if every caller is wrong.
+
+**2. `chunk_id` on the candidate is a bare `str | None`, but everything else in your domain
+uses value objects. Isn't that inconsistent?**
+
+It's deliberate. Constructing a `ChunkId` is already an assertion that the value is
+well-formed hex of the right length — and at that point in the pipeline nobody has made that
+assertion. It's raw model output that may be absent, malformed, or invented. Using the sloppy
+type is the honest representation of what I actually have. It becomes a `ChunkId` at the
+moment it's validated, which is inside the grounding function, and that's the point where the
+type change means something.
+
+**3. What stops the model citing a chunk id it saw somewhere else?**
+
+That's the case I nearly missed. My first version checked "does this chunk id exist in the
+corpus?", which catches a fabricated id but not a *real* chunk the specialist was never
+shown. With three specialists retrieving over the same corpus, ids can leak between contexts,
+and an existence check waves those through. So grounding takes visibility per specialist —
+`visible: Mapping[SpecialistKind, Sequence[ChunkId]]` — and checks membership in what *that*
+specialist actually received. It's one of four drop reasons, and I kept the drops rather than
+filtering silently, because "how often does the model try to cite something it should not" is
+a number I want in Phase 6.
+
+**4. You changed a design document during this phase. What did you get wrong?**
+
+`Schema.md` said a chunk id "resolves back to a full (file, section, offset) locator". Writing
+the code made me realise that's false — the id is `sha256(locator)[:16]`, and you can't
+recover a locator from a hash. What's actually true is the reverse: the locator is stored in
+columns beside the id and the pair can be *verified*. I reworded the doc and renamed the test
+to `test_chunk_id_verifies_against_its_locator`. It's a small thing, but "round-trips" is a
+claim I couldn't have demonstrated if someone asked me to, and those are the claims that cost
+you.
+
+**5. Why does `Severity` have a `rank` property instead of just being sorted?**
+
+Because it's a `StrEnum` so it serialises straight to Postgres, and sorted as strings you get
+`high < info < low < medium` — exactly backwards. It fails quietly: the review renders fine,
+it just buries the worst finding at the bottom. So all ranking goes through
+`rank_key = (severity.rank, confidence)`, and there's a test asserting alphabetical order is
+*not* severity order, purely so the next person reaching for the default comparison finds out
+immediately instead of shipping it.
+
+### Most likely to be challenged
+
+> *"You've written 133 tests and a domain layer with eleven ports, and the system can't
+> review anything yet. Isn't the type-level ceremony doing work that a couple of assertions
+> in the synthesis function would do just as well?"*
+
+For most of it, the honest answer is that a couple of assertions would be fine. `RepoRef`
+validation, `TokenUsage` non-negativity, the `PullRequest` number check — those are cheap
+either way and I wouldn't defend the value-object version as obviously superior.
+
+Where I'd push back is the `CandidateFinding`/`Finding` split specifically, and I'd make the
+argument concretely rather than on principle. Cite-or-drop is checked in exactly one place
+today, in synthesis. Phase 7 adds an MCP server that returns findings, and Phase 8 adds an
+SSE stream that emits them as they form — two more paths where findings reach a consumer. An
+assertion in synthesis protects one of those three. A type that cannot be constructed
+uncited protects all three, including the ones I haven't written yet. That's the trade: more
+ceremony now, and a class of bug that can't be introduced later by someone adding a call
+site.
+
+The part I'd concede without argument: eleven ports for a system with roughly two real
+adapters so far does look like anticipatory design, and some of them will turn out to have
+exactly one implementation plus a fake. I'd rather explain that than discover at Phase 8 that
+the retrieval interface assumed something the pgvector adapter can't do.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Tests passing | 133 | `uv run pytest` on the Phase 1 commit | Nothing about review quality. These are domain invariants — no model, no retrieval, no I/O has run |
+| mypy `--strict` errors | 0 across 27 files | `uv run mypy` | — |
+| import-linter contracts kept | 6 of 6 | `uv run lint-imports` | — |
+| Domain runtime dependencies | 0 | `app/domain` imports only stdlib, asserted by AST test | — |
+| Protocol ports defined | 11 | `tests/architecture/test_ports_are_protocols.py` | That the interfaces are *right* — most have no real adapter yet |
+
+**Gate-failure proofs run this phase:** 3 of 3 — file-level chunk ids (4 tests red),
+removing the per-specialist visibility check (2 tests red), giving a port an implementation
+(1 test red). All restored.

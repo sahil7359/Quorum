@@ -9,7 +9,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | # | Phase | Status | Commit | Tests | learn/ | ADRs |
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | Scaffolding | ✅ | `phase/00-scaffolding` | 25 passed | ✅ `00-scaffolding.md` | 0001, 0002 |
-| 1 | Domain core | ⬜ | — | — | `01-domain-and-ports.md` | — |
+| 1 | Domain core | ✅ | `phase/01-domain-core` | 133 passed | ✅ `01-domain-and-ports.md` | — |
 | 2 | MCP client | ⬜ | — | — | `02-mcp-client.md` | — |
 | 3 | Document RAG | ⬜ | — | — | `03-retrieval.md` | — |
 | 4 | Specialists + supervisor | ⬜ | — | — | `04-multi-agent.md` | — |
@@ -33,7 +33,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | NDCG@5 rerank delta reported honestly | ⬜ | Phase 3 |
 | Trajectory eval gating CI vs committed baseline | ⬜ | Phase 6 + 11 |
 | HITL approval on every write path + audit log | ⬜ | Phase 5 |
-| `learn/00`–`learn/13` complete | 🟡 | 1 of 14 |
+| `learn/00`–`learn/13` complete | 🟡 | 2 of 14 |
 | README with real numbers and real limitations | ⬜ | Phase 13 |
 | $0/month | ⬜ | verified at Phase 13 |
 
