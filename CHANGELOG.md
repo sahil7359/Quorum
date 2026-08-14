@@ -167,3 +167,20 @@ it affects. This is the fast index for finding where something lives.
   real process boundary (two savers, two graphs, one SQLite file).
 - Added dependency: `langgraph-checkpoint-sqlite`.
 - Tests: 412 → 437.
+
+## Phase 7 — MCP server — 2026-08-14
+
+- Added `app/infrastructure/mcp/quorum_server.py` — Quorum published as an MCP server with
+  four read-only tools. **No write path**, structurally: three read-only callables, no code
+  host import, and a graph built with `approval=None, publish=None`.
+- Added `docs/MCP.md` — the published tool schema, connection config, and what is tested.
+- Added `tests/support/quorum_mcp_stdio.py` and
+  `tests/integration/test_quorum_mcp_server.py` — a real MCP client driving our server over
+  real stdio. The mirror of Phase 2.
+- `review_pull_request` returns `routing_reason` and `dropped` alongside findings, so a client
+  sees why specialists ran and what cite-or-drop discarded.
+- `get_chunk` lets a client resolve a cited chunk id to its text and locator, making grounding
+  auditable without access to our database.
+- Every response carries `posted_to_github: false` and an explanatory note.
+- Taken ahead of Phase 6 deliberately — see `learn/07-mcp-server.md`.
+- Tests: 437 → 462.
