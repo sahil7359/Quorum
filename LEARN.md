@@ -7,6 +7,35 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 11 — CI: the container never built, and the test job would have hung
+
+Two real failures caught by actually running things, not by writing the workflow file and
+assuming it worked.
+
+**The Dockerfile didn't build.** `hatchling` (the build backend) reads `readme = "README.md"`
+from `pyproject.toml` and refuses to produce package metadata without the file present — and
+the first version of the Dockerfile copied `pyproject.toml` and `uv.lock` into the build stage
+before `app/`, but never `README.md`. `uv sync --no-install-project` still triggers that
+validation even though it isn't installing the project's own package yet. One line fixed it.
+This is the same class of bug DataChat's own CI hit — a README path assumption a build tool
+enforces that nothing local ever exercises, because local dev never runs the packaging step in
+isolation the way a container build does.
+
+**The test job had no Postgres.** The Phase 8/9 integration suite needs a real Postgres — that
+was the entire point of building it, since SQLite's append-only trigger and Postgres's
+append-only `RULE` are different mechanisms and only one of them had ever actually run. `uv run
+pytest` in CI, with no service container defined, would have sat there until every one of those
+tests timed out trying to reach `localhost:5433` and found nothing listening. Added a Postgres
+service container to the `tests` job, matching the exact user/password/db/port this project's
+own tests already default to locally.
+
+**The trajectory gate is deliberately not on every push.** It needs a real LLM to produce a
+number that means anything, and the only real option in a stock GitHub Actions runner is Ollama
+with a model pulled fresh — several gigabytes, CPU-only inference, on every single commit. That
+cost is not worth paying for a gate that only changes when the specialist prompts, the routing
+heuristics, or the model choice change, which is rare. `workflow_dispatch` — run manually —
+instead of gating every push on it.
+
 ## Phase 10 — Observability: logs, traces, and audit are three different questions
 
 `structlog` had been a declared dependency since the very first commit and had never been

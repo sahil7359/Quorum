@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -54,6 +55,27 @@ jobs:
   tests:
     name: test suite
     runs-on: ubuntu-latest
+    # why: the Postgres integration suite (Phase 8/9) needs a real server, not a fake -- the
+    #      whole reason those tests exist is that SQLite's append-only trigger and Postgres's
+    #      append-only RULE are different mechanisms, and a fake can't tell them apart. A
+    #      GitHub Actions service container is the standard way to get that without a
+    #      dependency on external infrastructure.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: quorum
+          POSTGRES_PASSWORD: quorum
+          POSTGRES_DB: quorum
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QUORUM_TEST_DATABASE_URL: postgresql://quorum:quorum@localhost:5433/quorum
     steps:
       - uses: actions/checkout@v4
 
@@ -66,4 +88,70 @@ jobs:
       - name: pytest
         run: uv run pytest --cov=app --cov-report=term-missing
 
-  # Added in Phase 11: retrieval eval, trajectory gate, container build, Postgres service.
+  retrieval-eval:
+    name: retrieval eval gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - run: uv sync --all-extras
+
+      # why: fastembed's ONNX models download from Hugging Face on first use rather than
+      #      being vendored, so this job needs outbound network access. No API key or paid
+      #      service either way -- the retrieval eval is entirely local inference.
+      - name: retrieval gate
+        run: uv run python -m eval.retrieval.gate
+
+  container-build:
+    name: container build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          # why: cache the layers, not the image -- this job's job is "does the Dockerfile
+          #      still build", not "produce an artifact anything downstream consumes yet".
+          #      Pushing to a registry is Phase 13's job, once there is somewhere to deploy to.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  trajectory-eval:
+    name: trajectory eval gate (manual)
+    # why: workflow_dispatch only, not on every push. This gate needs a real LLM -- Ollama,
+    #      installed fresh with an 8B model pulled (~5GB) -- to produce a number that means
+    #      anything against the committed baseline. Running that on every push would make CI
+    #      slow and expensive for a gate that changes only when the specialist prompts,
+    #      routing heuristics, or model choice change, which is rare. Run manually
+    #      ("Run workflow" in the Actions tab) after a change to any of those.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - run: uv sync --all-extras
+
+      - name: install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: start Ollama and pull the model
+        run: |
+          ollama serve &
+          sleep 5
+          ollama pull llama3.1:8b
+
+      - name: trajectory gate
+        run: uv run python -m eval.trajectory.gate

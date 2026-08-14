@@ -1,0 +1,22 @@
+# Keeps the build context small and stops local dev artifacts (secrets included) from ever
+# reaching the Docker daemon, not just from reaching the final image via COPY.
+.git/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+learn/
+eval/_runs/
+eval/_scratch/
+.env
+.env.*
+!.env.example
+.claude/
+node_modules/
+Dockerfile
+.dockerignore
