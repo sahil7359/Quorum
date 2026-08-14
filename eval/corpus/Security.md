@@ -49,10 +49,10 @@ free-tier quota.
 
 | ID | Risk | How it is addressed | Test |
 | --- | --- | --- | --- |
-| LLM01 | Prompt injection | Fencing, cite-or-drop, human gate | `test_untrusted_content_is_fenced`, `test_hallucinated_chunk_id_is_dropped` |
-| LLM02 | Insecure output handling | LLM output parsed into Pydantic, never executed, never used to build a query or a path | `test_malformed_specialist_output_is_dropped` |
+| LLM01 | Prompt injection | Fencing, cite-or-drop, human gate | `test_untrusted_content_is_fenced`, `test_a_hallucinated_chunk_id_is_dropped` |
+| LLM02 | Insecure output handling | LLM output parsed and validated, never executed, never used to build a query or a path | `test_one_malformed_specialist_does_not_fail_the_run` |
 | LLM03 | Training-data poisoning | N/A — no training or fine-tuning | — |
-| LLM04 | Model DoS | Diff cap, token budget, rate limit | `test_budget_exhaustion_falls_back_honestly` |
+| LLM04 | Model DoS | Diff cap (G8), daily token budget (G9), live-review rate limit (G16) — two independent caps because request volume and token spend are different axes | `test_exhaustion_with_no_cached_review_is_refused_honestly`, `test_the_call_that_exceeds_the_limit_is_refused` |
 | LLM05 | Supply chain | Locked deps, minimal set, ADR per dependency | lockfile in CI |
 | LLM06 | Sensitive information disclosure | Public repos only; redaction; no secret ever enters a prompt | `test_diff_content_never_logged_at_info` |
 | LLM07 | Insecure plugin design | MCP tool allowlist; write tools gated on approval | `test_non_allowlisted_tool_is_refused` |

@@ -35,15 +35,16 @@ Retrieved chunks are therefore fenced exactly like diff content.
 | G4 | Write tools reachable only from `publish`, and only with a matching `approved` audit row | `github_client.py` + `publish` node | `test_publish_requires_approval_row` |
 | G5 | `payload_hash` binds approval to exact text; edited text invalidates approval | `ApprovalService` | `test_edited_finding_requires_reapproval` |
 | G6 | Cite-or-drop: uncited findings dropped in code **and** by a `NOT NULL` FK | `synthesise` node + schema | `test_uncited_finding_is_dropped` |
-| G7 | Citation must resolve to a chunk actually returned to *that* specialist | `synthesise` node | `test_hallucinated_chunk_id_is_dropped` |
+| G7 | Citation must resolve to a chunk actually returned to *that* specialist | `synthesise` node | `test_a_hallucinated_chunk_id_is_dropped` |
 | G8 | Diff size cap, with truncation surfaced in output | `ingest` node | `test_oversize_diff_is_truncated_and_flagged` |
-| G9 | Daily token budget; exhaustion serves cached with an honest banner | `BudgetService` | `test_budget_exhaustion_falls_back_honestly` |
-| G10 | Secrets redacted before any log call; diff never logged at INFO | `observability/redaction.py` | `test_diff_content_never_logged_at_info` |
-| G11 | No shell execution, no filesystem writes, no network egress from agent code — only through ports | architecture | `test_agents_have_no_io_imports` |
-| G12 | Scoped PAT (`public_repo`), passed by env not argv | container / MCP launch | `test_token_not_passed_in_argv` |
-| G13 | LLM output parsed into Pydantic models; parse failure drops that specialist, never crashes the run | specialist nodes | `test_malformed_specialist_output_is_dropped` |
-| G14 | Idempotency keys prevent duplicate runs and duplicate posts | `ReviewService` | `test_duplicate_idempotency_key_returns_same_run` |
+| G9 | Daily token budget; exhaustion serves cached with an honest banner | `ReviewService`, `BudgetPort` | `test_exhaustion_with_a_cached_review_serves_it_with_a_banner`, `test_exhaustion_with_no_cached_review_is_refused_honestly` |
+| G10 | Secrets redacted before any log call; diff never logged at INFO | `observability/redaction.py` | `test_diff_content_never_logged_at_info` (see `tests/architecture/test_observability_is_enforced.py`) |
+| G11 | No shell execution, no filesystem writes, no network egress from agent code — only through ports | architecture | `test_application_does_not_perform_io` |
+| G12 | Scoped PAT (`public_repo`), passed by env not argv | container / MCP launch | `test_token_is_not_passed_in_argv`, `test_github_token_is_not_in_mcp_argv` |
+| G13 | LLM output parsed and validated; parse failure drops that specialist, never crashes the run | specialist nodes | `test_one_malformed_specialist_does_not_fail_the_run` |
+| G14 | Idempotency keys prevent duplicate runs and duplicate posts | `ReviewService` | `test_concurrent_requests_with_the_same_key_run_the_graph_once`, `test_idempotency_key_collapses_to_a_single_completed_event` |
 | G15 | MCP server's `review_pull_request` cannot post to GitHub | `quorum_server.py` | `test_mcp_server_has_no_write_path` |
+| G16 | Live-review rate limit, distinct from the token budget — bounds request *volume*, not spend; a cache hit bypasses it entirely | `RateLimiterPort`, `ReviewService` | `test_the_call_that_exceeds_the_limit_is_refused`, `test_a_cache_hit_bypasses_the_rate_limit` |
 
 ## 3. What is deliberately *not* here
 

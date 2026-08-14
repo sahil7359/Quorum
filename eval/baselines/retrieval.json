@@ -1,7 +1,7 @@
 {
-  "corpus_sha": "f7b0555dbab515da",
+  "corpus_sha": "f1c786979694bbd7",
   "corpus_files": 18,
-  "corpus_chunks": 223,
+  "corpus_chunks": 224,
   "queries": 20,
   "k": 5,
   "embedding_model": "BAAI/bge-small-en-v1.5",
@@ -9,19 +9,19 @@
   "results": [
     {
       "config": "dense",
-      "ndcg_at_5": 0.5148,
-      "recall_at_5": 0.545,
+      "ndcg_at_5": 0.4897,
+      "recall_at_5": 0.495,
       "success_at_5": 0.9,
       "queries_scored": 20,
-      "latency_ms_per_query": 11.66
+      "latency_ms_per_query": 15.99
     },
     {
       "config": "bm25",
-      "ndcg_at_5": 0.4905,
-      "recall_at_5": 0.5658,
+      "ndcg_at_5": 0.5007,
+      "recall_at_5": 0.5908,
       "success_at_5": 0.85,
       "queries_scored": 20,
-      "latency_ms_per_query": 0.63
+      "latency_ms_per_query": 1.09
     },
     {
       "config": "hybrid",
@@ -29,7 +29,7 @@
       "recall_at_5": 0.5533,
       "success_at_5": 0.85,
       "queries_scored": 20,
-      "latency_ms_per_query": 12.33
+      "latency_ms_per_query": 17.12
     },
     {
       "config": "hybrid+rerank",
@@ -37,7 +37,7 @@
       "recall_at_5": 0.52,
       "success_at_5": 0.8,
       "queries_scored": 20,
-      "latency_ms_per_query": 776.99
+      "latency_ms_per_query": 949.93
     }
   ],
   "rerank_delta_ndcg": -0.0498,

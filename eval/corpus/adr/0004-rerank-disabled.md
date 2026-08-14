@@ -20,45 +20,35 @@ each separately, so they can express "this passage answers this question" rather
 **Reranking is off by default** (`QUORUM_RERANK_ENABLED=false`), kept behind a flag rather
 than deleted.
 
-Measured on 20 golden queries over 157 chunks from this repository's own `docs/` tree,
-`BAAI/bge-small-en-v1.5` + `Xenova/ms-marco-MiniLM-L-6-v2`:
-
+Measured with `BAAI/bge-small-en-v1.5` + `Xenova/ms-marco-MiniLM-L-6-v2`.
 These are the numbers in the committed baseline, `eval/baselines/retrieval.json`, measured
-over 20 golden queries against the frozen corpus in `eval/corpus/` (157 chunks, 14 files).
+over 20 golden queries against the frozen corpus in `eval/corpus/` (16 files, 178 chunks).
 Reproduce with `uv run python -m eval.retrieval.runner`:
 
 | config | NDCG@5 | Recall@5 | Success@5 | ms/query |
 | --- | --- | --- | --- | --- |
-| dense only | 0.5768 | 0.5867 | 0.9000 | 8.60 |
-| BM25 only | 0.5507 | 0.6408 | 0.8500 | 0.47 |
-| **hybrid (RRF)** | **0.5811** | **0.6283** | **0.9500** | **9.10** |
-| hybrid + rerank | 0.5018 | 0.5575 | 0.8500 | 812.10 |
+| dense only | 0.5148 | 0.5450 | 0.9000 | 11.66 |
+| BM25 only | 0.4905 | 0.5658 | 0.8500 | 0.63 |
+| **hybrid (RRF)** | **0.5260** | **0.5533** | **0.8500** | **12.33** |
+| hybrid + rerank | 0.4762 | 0.5200 | 0.8000 | 776.99 |
 
-**Rerank delta: NDCG@5 −0.0793, Recall@5 −0.0708, at 89× the latency.**
+**Rerank delta: NDCG@5 −0.0498, Recall@5 −0.0333, at 63× the latency.**
 
-A note on how these numbers moved while I was writing this ADR, because it is the more
-interesting finding. The eval originally read the *live* `docs/` tree — so writing this
-document added a file to the corpus and changed the result it was recording (hybrid NDCG@5
-went 0.5943 → 0.5825 → 0.5811 across three runs, with no code change at all). Two fixes:
-the report now carries a `corpus_sha` and the gate refuses to compare across different
-corpora, and the corpus itself is a **frozen snapshot** in `eval/corpus/`, refreshed only by
-an explicit `--snapshot`. The reranking conclusion held identically across every run.
+### Why these numbers are lower than the ones first recorded here
 
-It lost on every quality metric *and* cost 772ms more per query. There is no trade-off to
-weigh here; on this corpus it is simply worse.
+An earlier revision of this ADR quoted hybrid at NDCG@5 0.5811 / Success@5 0.9500. That was
+measured against a 14-file, 157-chunk corpus. Two documents (`docs/Logging.md`, `docs/MCP.md`)
+were later added to `docs/`, the corpus was re-snapshotted, and **the same 20 queries scored
+lower against the larger corpus** — 0.5260 NDCG@5, 0.8500 Success@5.
 
-Two secondary results worth recording:
+That is not a regression in the retriever. It is the corpus growing more distractors: more
+documents means more plausible-but-wrong chunks competing for the top 5, and my queries were
+written when those two documents did not exist. It is a useful reminder that **an absolute
+retrieval score is a property of the corpus as much as of the retriever**, which is exactly
+why the delta is the number this ADR relies on.
 
-- **Hybrid beats both legs individually** — the reason the sparse leg exists is confirmed.
-  BM25 alone has better recall than dense alone (0.6408 vs 0.5867), which is the exact-
-  identifier effect the code-aware tokenizer was built for, and fusion keeps both.
-- **Success@5 of 0.95 for hybrid** is the number closest to what Quorum actually needs: a
-  specialist needs *one* apt chunk to ground a finding, not a well-ordered list.
-
-Before accepting the result I verified the reranker was not integrated backwards — a
-sign-flipped score would produce exactly this shape of loss. Scored against three passages
-with one obviously relevant, the model returns +6.5 for the relevant passage and −11.3/−11.4
-for the irrelevant ones, and my code sorts descending. The integration is correct.
+**The conclusion is unchanged and held across every corpus measured:** reranking lost on every
+quality metric, in all four runs, at 63–91× the latency.
 
 ## Alternatives considered
 
@@ -81,16 +71,17 @@ rather than a closed question.
 
 **Good**
 
-- Retrieval is 91× faster per query, which matters directly: three specialists × one query
-  each = 2.3s of pure rerank latency removed from every review.
+- Retrieval is ~63× faster per query, which matters directly: three specialists × one query
+  each is roughly 2.3s of pure rerank latency removed from every review.
 - One fewer model to download and hold in 512MB of RAM.
 - The project has a published negative result, which is more informative than a positive one
   — it shows the eval is capable of changing a decision.
 
 **Bad, and accepted**
 
-- The result is corpus-specific and I should not over-claim it. 20 queries over 157 chunks
-  of *my own* documentation is a small, self-labelled sample. What I can defend is "on this
+- The result is corpus-specific and I should not over-claim it. 20 queries over 178 chunks
+  of *my own* documentation is a small, self-labelled sample -- and the absolute scores
+  demonstrably move when the corpus does. What I can defend is "on this
   corpus, with these models, reranking lost"; not "cross-encoder reranking is not worth it".
 - Keeping dead-by-default code costs a little clarity.
 - If the gallery corpus (six third-party repositories, Phase 12) behaves differently, this
@@ -102,5 +93,5 @@ rather than a closed question.
 > assumption, and the comparison can be re-run at any time.
 
 `eval/retrieval/runner.py` produces the table above; `eval/baselines/retrieval.json` is the
-committed baseline; `tests/unit/test_retrieval_eval_gate.py` fails when a configuration
-regresses against it.
+committed baseline; `tests/unit/test_retrieval.py::TestGate` fails when a configuration
+regresses against it, and refuses to compare across different corpora.
