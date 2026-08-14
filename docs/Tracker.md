@@ -2,8 +2,9 @@
 
 Kept current as work proceeds. Last updated: **2026-08-14**.
 
-> **Run stopped after Phase 3.** Planning + Phases 0-3 complete and green. Phases 4-7 not
-> started -- remaining context would have forced a rushed Phase 4. See HANDOFF.md.
+> **Phases 0-4 complete and green.** No LLM has produced a review yet -- every graph test
+> runs against a fake model, so finding precision/recall and routing accuracy are still
+> unmeasured. See HANDOFF.md.
 
 Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a caveat
 
@@ -15,7 +16,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | 1 | Domain core | ✅ | `phase/01-domain-core` | 133 passed | ✅ `01-domain-and-ports.md` | — |
 | 2 | MCP client | ✅ | `phase/02-mcp-client` | 196 passed | ✅ `02-mcp-client.md` | 0003 |
 | 3 | Document RAG | ✅ | `phase/03-document-rag` | 257 passed | ✅ `03-retrieval.md` | 0004 |
-| 4 | Specialists + supervisor | ⬜ | — | — | `04-multi-agent.md` | — |
+| 4 | Specialists + supervisor | ✅ | `phase/04-multi-agent` | 404 passed | ✅ `04-multi-agent.md` | 0005 |
 | 5 | HITL + audit | ⬜ | — | — | `05-hitl-and-audit.md` | — |
 | 6 | Trajectory eval | ⬜ | — | — | `06-trajectory-eval.md` | — |
 | 7 | MCP server | ⬜ | — | — | `07-mcp-server.md` | — |
@@ -36,7 +37,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | NDCG@5 rerank delta reported honestly | ✅ | **−0.0793** — reranking lost and was cut. ADR-0004 |
 | Trajectory eval gating CI vs committed baseline | ⬜ | Phase 6 + 11 |
 | HITL approval on every write path + audit log | ⬜ | Phase 5 |
-| `learn/00`–`learn/13` complete | 🟡 | 4 of 14 |
+| `learn/00`–`learn/13` complete | 🟡 | 5 of 14 |
 | README with real numbers and real limitations | ⬜ | Phase 13 |
 | $0/month | ⬜ | verified at Phase 13 |
 
@@ -54,7 +55,7 @@ the correct entry; a plausible number is not.
 | Finding precision | TODO: not yet measured | Phase 6 trajectory eval | — |
 | Finding recall | TODO: not yet measured | Phase 6 trajectory eval | — |
 | Specialist routing accuracy | TODO: not yet measured | Phase 6 trajectory eval | — |
-| Token reduction, AST-scoped vs whole-file | TODO: not yet measured | Phase 4 | — |
+| Token reduction, AST-scoped vs whole-file | **34.86%** | 8 real commits, 123 files, `eval/baselines/scoping.json` | Generalisation — my commits are large and doc-heavy; `estimate_tokens` is an approximation |
 | Cost per review | TODO: not yet measured | Trace aggregation | — |
 
 ## Environment facts established at project start (2026-08-14)

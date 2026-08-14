@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from app.domain import log_events
 from app.domain.entities import Chunk, RepoRef, ScoredChunk
 from app.domain.ports import EmbedderPort, LoggerPort
 from app.domain.values import ChunkId
@@ -145,7 +146,7 @@ class HybridRetriever:
             candidates = candidates[:top_k]
 
         self._logger.info(
-            "retrieval.completed",
+            log_events.RETRIEVAL_COMPLETED,
             query_chars=len(query),
             dense_hits=len(dense_ids),
             sparse_hits=len(sparse_ids),

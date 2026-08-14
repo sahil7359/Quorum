@@ -7,12 +7,15 @@ production code is using the port correctly.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from app.domain.ports import LoggerPort
+from app.domain.entities import Diff, PullRequest, RepoRef, ScoredChunk
+from app.domain.errors import CodeHostError
+from app.domain.ports import ChatMessage, Completion, LoggerPort
+from app.domain.values import TokenUsage
 
 
 @dataclass
@@ -72,3 +75,97 @@ class FrozenClock:
 
     def now(self) -> datetime:
         return self.moment
+
+
+@dataclass
+class FakeChatModel:
+    """Deterministic ``ChatModelPort``.
+
+    Responses are queued per node name, so a test can give the router one answer and each
+    specialist another without patching anything. Records every call, because "what was the
+    model actually asked?" is the question most specialist bugs come down to.
+    """
+
+    responses: dict[str, list[str]] = field(default_factory=dict)
+    default: str = '{"findings": []}'
+    calls: list[tuple[str, list[ChatMessage]]] = field(default_factory=list)
+    fail_on: set[str] = field(default_factory=set)
+
+    async def complete(
+        self,
+        messages: Sequence[ChatMessage],
+        *,
+        node: str,
+        model: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        json_schema: Mapping[str, object] | None = None,
+    ) -> Completion:
+        self.calls.append((node, list(messages)))
+        if node in self.fail_on:
+            raise RuntimeError(f"simulated provider failure for {node}")
+
+        queued = self.responses.get(node)
+        content = queued.pop(0) if queued else self.default
+        return Completion(
+            content=content,
+            usage=TokenUsage(
+                provider="fake",
+                model=model or "fake-model",
+                node=node,
+                prompt_tokens=sum(len(m.content) // 4 for m in messages),
+                output_tokens=len(content) // 4,
+                latency_ms=1,
+            ),
+        )
+
+    def prompt_for(self, node: str) -> str:
+        """The full rendered prompt for a node, for asserting on fencing."""
+        for called, messages in self.calls:
+            if called == node:
+                return "\n".join(m.content for m in messages)
+        raise AssertionError(f"{node} was never called; called: {[c for c, _ in self.calls]}")
+
+
+@dataclass
+class FakeRetriever:
+    """``RetrieverPort`` returning a fixed set of chunks, recording every query."""
+
+    chunks: list[ScoredChunk] = field(default_factory=list)
+    queries: list[str] = field(default_factory=list)
+    fail: bool = False
+    per_specialist: dict[str, list[ScoredChunk]] = field(default_factory=dict)
+
+    async def retrieve(
+        self, query: str, *, repo: object, commit_sha: str, top_k: int
+    ) -> Sequence[ScoredChunk]:
+        self.queries.append(query)
+        if self.fail:
+            raise RuntimeError("simulated retrieval failure")
+        for marker, chunks in self.per_specialist.items():
+            if marker in query:
+                return chunks[:top_k]
+        return self.chunks[:top_k]
+
+
+@dataclass
+class FakeCodeHost:
+    """``CodeHostPort`` serving fixed PR data."""
+
+    pull_request: PullRequest | None = None
+    diff: Diff | None = None
+    files: dict[str, str] = field(default_factory=dict)
+    file_errors: set[str] = field(default_factory=set)
+
+    async def get_pull_request(self, repo: RepoRef, number: int) -> PullRequest:
+        assert self.pull_request is not None
+        return self.pull_request
+
+    async def get_diff(self, repo: RepoRef, number: int, *, max_lines: int) -> Diff:
+        assert self.diff is not None
+        return self.diff
+
+    async def get_file(self, repo: RepoRef, path: str, *, ref: str) -> str:
+        if path in self.file_errors:
+            raise CodeHostError(f"cannot fetch {path}")
+        return self.files.get(path, "")
