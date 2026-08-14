@@ -1,0 +1,45 @@
+{
+  "corpus_sha": "bcbaf3c2cf52d77f",
+  "corpus_files": 15,
+  "corpus_chunks": 164,
+  "queries": 20,
+  "k": 5,
+  "embedding_model": "BAAI/bge-small-en-v1.5",
+  "rerank_model": "Xenova/ms-marco-MiniLM-L-6-v2",
+  "results": [
+    {
+      "config": "dense",
+      "ndcg_at_5": 0.5768,
+      "recall_at_5": 0.5867,
+      "success_at_5": 0.9,
+      "queries_scored": 20,
+      "latency_ms_per_query": 8.6
+    },
+    {
+      "config": "bm25",
+      "ndcg_at_5": 0.5507,
+      "recall_at_5": 0.6408,
+      "success_at_5": 0.85,
+      "queries_scored": 20,
+      "latency_ms_per_query": 0.47
+    },
+    {
+      "config": "hybrid",
+      "ndcg_at_5": 0.5811,
+      "recall_at_5": 0.6283,
+      "success_at_5": 0.95,
+      "queries_scored": 20,
+      "latency_ms_per_query": 9.1
+    },
+    {
+      "config": "hybrid+rerank",
+      "ndcg_at_5": 0.5018,
+      "recall_at_5": 0.5575,
+      "success_at_5": 0.85,
+      "queries_scored": 20,
+      "latency_ms_per_query": 812.1
+    }
+  ],
+  "rerank_delta_ndcg": -0.0793,
+  "rerank_delta_recall": -0.0708
+}

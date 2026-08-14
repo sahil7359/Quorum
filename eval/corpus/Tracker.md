@@ -11,7 +11,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | 0 | Scaffolding | ✅ | `phase/00-scaffolding` | 25 passed | ✅ `00-scaffolding.md` | 0001, 0002 |
 | 1 | Domain core | ✅ | `phase/01-domain-core` | 133 passed | ✅ `01-domain-and-ports.md` | — |
 | 2 | MCP client | ✅ | `phase/02-mcp-client` | 196 passed | ✅ `02-mcp-client.md` | 0003 |
-| 3 | Document RAG | ✅ | `phase/03-document-rag` | 257 passed | ✅ `03-retrieval.md` | 0004 |
+| 3 | Document RAG | ⬜ | — | — | `03-retrieval.md` | — |
 | 4 | Specialists + supervisor | ⬜ | — | — | `04-multi-agent.md` | — |
 | 5 | HITL + audit | ⬜ | — | — | `05-hitl-and-audit.md` | — |
 | 6 | Trajectory eval | ⬜ | — | — | `06-trajectory-eval.md` | — |
@@ -30,10 +30,10 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | Live public URL, no setup needed | ⬜ | Phase 13 |
 | MCP consumed | ⚠ | Client built and tested over real stdio against a fake MCP server. **Not yet run against the real GitHub MCP server** — no token. |
 | MCP server published | ⬜ | Phase 7 |
-| NDCG@5 rerank delta reported honestly | ✅ | **−0.0793** — reranking lost and was cut. ADR-0004 |
+| NDCG@5 rerank delta reported honestly | ⬜ | Phase 3 |
 | Trajectory eval gating CI vs committed baseline | ⬜ | Phase 6 + 11 |
 | HITL approval on every write path + audit log | ⬜ | Phase 5 |
-| `learn/00`–`learn/13` complete | 🟡 | 4 of 14 |
+| `learn/00`–`learn/13` complete | 🟡 | 3 of 14 |
 | README with real numbers and real limitations | ⬜ | Phase 13 |
 | $0/month | ⬜ | verified at Phase 13 |
 
@@ -44,10 +44,8 @@ the correct entry; a plausible number is not.
 
 | Number | Value | How measured | What it does not prove |
 | --- | --- | --- | --- |
-| NDCG@5 (hybrid) | **0.5811** | 20 golden queries, frozen corpus, `eval/baselines/retrieval.json` | Labels are self-written; NDCG rewards ordering Quorum does not need |
-| Recall@5 (hybrid) | **0.6283** | as above, normalised by `min(len(relevant), 5)` | Same label caveat |
-| Success@5 (hybrid) | **0.9500** | any relevant chunk in top 5 | Closest metric to Quorum's real need; still self-labelled |
-| Rerank delta NDCG@5 | **−0.0793** | hybrid+rerank minus hybrid | Only on this corpus with this model pair |
+| NDCG@5, rerank on/off | TODO: not yet measured | Phase 3 retrieval eval | — |
+| Recall@5, rerank on/off | TODO: not yet measured | Phase 3 retrieval eval | — |
 | Finding precision | TODO: not yet measured | Phase 6 trajectory eval | — |
 | Finding recall | TODO: not yet measured | Phase 6 trajectory eval | — |
 | Specialist routing accuracy | TODO: not yet measured | Phase 6 trajectory eval | — |

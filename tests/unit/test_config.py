@@ -51,7 +51,7 @@ class TestConfigHash:
             ("QUORUM_CHUNKER_VERSION", "2"),
             ("QUORUM_RETRIEVAL_TOP_K", "7"),
             ("QUORUM_RETRIEVAL_CANDIDATES", "50"),
-            ("QUORUM_RERANK_ENABLED", "false"),
+            ("QUORUM_RERANK_ENABLED", "true"),  # default is now False -- measured, see ADR-0004
             ("QUORUM_EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5"),
             ("QUORUM_RERANK_MODEL", "other/model"),
             ("QUORUM_MAX_DIFF_LINES", "500"),

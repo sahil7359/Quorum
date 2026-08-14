@@ -332,3 +332,119 @@ Phase 3 (Document RAG) — **the highest-risk phase** — starts with:
 - Per R1 of the ImplementationPlan reflection, Phase 3 splits into **3a chunking and chunk
   identity** and **3b retrieval, fusion, rerank, eval**, committed separately.
 - `fastembed` is not yet installed. Docker is available for `pgvector/pgvector:pg16`.
+
+---
+
+## Phase 3 — Document RAG ⚠ **read the chunk-identity note**
+
+**Branch:** `phase/03-document-rag` → merged to `main` with `--no-ff`
+**Suite:** 257 passed · mypy clean on 49 files · 6/6 contracts · retrieval gate PASS
+
+### ⚠ Chunk identity — you asked me to flag this prominently
+
+**Chunk ids are chunk-level and I am confident in them.** The scheme is:
+
+```
+canonical = "{repo}@{sha}:{file_path}#{section_path}@{start_offset}-{end_offset}"
+chunk_id  = sha256(canonical)[:16]
+```
+
+Byte offsets participate, so two chunks from the same file *and the same section* get
+different ids. Verified by `test_ids_are_chunk_level_not_file_level`, which builds a long
+single-section document and asserts distinct ids, and proven by rewriting `canonical()` to a
+file-level form (2 tests red immediately).
+
+**I was not unsure anywhere here**, with one exception worth knowing:
+
+- Offsets are byte offsets into the **UTF-8 encoding after newline normalisation to `\n`**.
+  Without normalising, a CRLF checkout on Windows produces different ids for identical
+  content. `test_crlf_and_lf_produce_identical_ids` covers it. If you ever ingest on a
+  machine that normalises differently, that test is the canary.
+- `ChunkLocator.canonical()` is **frozen format**. Changing it re-keys the entire corpus, so
+  it moves only with `Settings.chunker_version` and a full re-ingest.
+
+### What was built, in plain language
+
+Documents are split on heading boundaries into overlapping windows, each carrying a full
+locator. Retrieval runs dense (fastembed bge-small, 384d) and BM25 (hand-rolled, code-aware
+tokenizer) in parallel, fuses by reciprocal rank fusion, and optionally reranks. A retrieval
+eval scores four configurations against 20 golden queries and a committed baseline, with a
+regression gate.
+
+### The measured result: reranking loses
+
+| config | NDCG@5 | Recall@5 | Success@5 | ms/query |
+| --- | --- | --- | --- | --- |
+| dense | 0.5768 | 0.5867 | 0.9000 | 8.60 |
+| bm25 | 0.5507 | 0.6408 | 0.8500 | 0.47 |
+| **hybrid** | **0.5811** | **0.6283** | **0.9500** | **9.10** |
+| hybrid+rerank | 0.5018 | 0.5575 | 0.8500 | 812.10 |
+
+Rerank delta **−0.0793 NDCG@5**, **−0.0708 Recall@5**, 89× latency. Disabled by default
+(ADR-0004), kept behind a flag. I verified the reranker is not integrated backwards before
+accepting this.
+
+### ⚠ A bug you should know about because it nearly shipped
+
+The eval corpus was the live `docs/` tree. The ADR recording the reranking result is itself a
+document in `docs/`, so **writing it changed the numbers it recorded** — hybrid NDCG@5 went
+0.5943 → 0.5825 → 0.5811 across three runs with zero code change.
+
+Found because the gate failed immediately after I restored from a deliberate break, when it
+should have passed. Fixes: every report carries a `corpus_sha` and the gate raises
+`CorpusMismatch` rather than reporting a false regression; and the corpus is now a **frozen
+snapshot** in `eval/corpus/`, refreshed only by `--snapshot`.
+
+**Consequence for you:** when you edit `docs/`, the eval does *not* change. To pick up doc
+changes deliberately:
+
+```bash
+uv run python -m eval.retrieval.runner --snapshot --write-baseline
+```
+
+### Decisions I made that you did not specify
+
+| Decision | Why |
+| --- | --- |
+| **pgvector deferred**, `InMemoryChunkStore` only | Exhaustive cosine over ~1e4 chunks is single-digit ms. An HNSW index trades recall for speed I do not need, and that recall loss would contaminate the numbers this phase exists to produce. pgvector is a deployment concern. **This is a deferral, not an omission** — `ChunkStorePort` exists and a pgvector adapter is a drop-in. |
+| Corpus frozen in `eval/corpus/` | Breaks the self-reference loop above. Costs ~200KB of duplicated markdown. |
+| Golden-set labels are `(file_path, section_substring)`, not chunk ids | Re-chunking (e.g. changing `target_tokens`) would otherwise invalidate 20 hand-written labels. |
+| `Success@5` added as a third metric | Closest to what Quorum actually needs — a specialist needs *one* apt chunk, not a good ordering. NDCG punishes the system for something it does not do. |
+| BM25 IDF clamped at zero | The smoothed form goes negative for terms in >half the corpus, *penalising* a document for containing the query term. On a small domain corpus, "chunk" is such a term. |
+| Gate split into pure logic + slow CLI | So the comparison logic can be broken on purpose in a millisecond unit test. |
+| `hybrid+rerank` not gated | It is disabled by default; failing CI over a config we do not ship is noise. |
+| Blank lines trimmed from window edges | Otherwise a citation's line link points at the empty line above the text. |
+
+### What I was unsure about and guessed at
+
+- **`target_tokens=320`, `overlap_tokens=48`** are unmeasured. I did not sweep chunk size,
+  and it plausibly matters more than reranking did. **This is the most obvious cheap
+  experiment left in retrieval** and the eval harness already supports it.
+- **`estimate_tokens` is chars÷4**, not a real tokenizer. It only drives packing; budget
+  accounting uses provider-reported counts. Named `estimate` for that reason.
+- **20 queries is a small sample.** A ±0.05 swing on NDCG@5 would not surprise me. The gate
+  tolerance is 0.02, which may prove too tight; if CI flaps, widen it deliberately rather
+  than re-baselining to silence it.
+- **Multi-target queries may be depressing NDCG structurally.** Where I labelled two
+  documents relevant, retrieval concentrates on the better lexical match. I have not
+  separated "retrieval failure" from "labelling artefact" and I should not claim to have.
+- **`HybridRetriever` takes `store`/`reranker` as `object`** with `# type: ignore` at the call
+  sites, rather than the Protocol types. Structural typing plus the async Protocol methods
+  fought me and I chose to ship rather than spend the phase on it. **This is the ugliest code
+  in the repo and it should be cleaned up** — the ports exist, the annotations just are not
+  wired through.
+
+### What the next phase starts with
+
+Phase 4 (Specialists + supervisor) starts with:
+
+- `HybridRetriever.retrieve()` returning `ScoredChunk`s, and `visible_ids()` in
+  `hybrid.py` producing exactly the `Mapping[SpecialistKind, Sequence[ChunkId]]` that
+  `ground_candidates()` needs for its per-specialist visibility check. **That wiring is the
+  point where cite-or-drop becomes real** — the two halves were built three phases apart and
+  have not yet been connected.
+- `ground_candidates()` and `deduplicate()` already written and tested (Phase 1).
+- **No `ChatModelPort` adapter exists yet.** Phase 4 needs `OllamaChatModel` (local, works
+  now) and `GroqChatModel` (no key — write it, cannot verify it).
+- LangGraph is **not yet a dependency**. It arrives in Phase 4 with ADR-0002 already written.
+- `RecordingLogger` in `tests/support/fakes.py` is available for node tests.
