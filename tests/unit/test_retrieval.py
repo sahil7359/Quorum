@@ -10,7 +10,7 @@ import pytest
 
 from app.infrastructure.retrieval.fusion import reciprocal_rank_fusion
 from app.infrastructure.retrieval.sparse import BM25Index, tokenize
-from eval.retrieval.gate import CorpusMismatch, check_regression
+from eval.retrieval.gate import CorpusMismatchError, check_regression
 from eval.retrieval.metrics import ndcg_at_k, recall_at_k, success_at_k
 
 
@@ -206,7 +206,7 @@ class TestGate:
         old = {**BASE, "corpus_sha": "aaaaaaaaaaaaaaaa"}
         new = {**BASE, "corpus_sha": "bbbbbbbbbbbbbbbb"}
 
-        with pytest.raises(CorpusMismatch, match="Re-baseline"):
+        with pytest.raises(CorpusMismatchError, match="Re-baseline"):
             check_regression(old, new)
 
     def test_same_corpus_still_compares(self) -> None:

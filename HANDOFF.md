@@ -392,7 +392,7 @@ document in `docs/`, so **writing it changed the numbers it recorded** — hybri
 
 Found because the gate failed immediately after I restored from a deliberate break, when it
 should have passed. Fixes: every report carries a `corpus_sha` and the gate raises
-`CorpusMismatch` rather than reporting a false regression; and the corpus is now a **frozen
+`CorpusMismatchError` rather than reporting a false regression; and the corpus is now a **frozen
 snapshot** in `eval/corpus/`, refreshed only by `--snapshot`.
 
 **Consequence for you:** when you edit `docs/`, the eval does *not* change. To pick up doc

@@ -41,7 +41,7 @@ kept only so the comparison stays reproducible. Gating a configuration we do not
 fail CI for a change that affects nothing."""
 
 
-class CorpusMismatch(ValueError):
+class CorpusMismatchError(ValueError):
     """Baseline and current run measured different corpora, so they are incomparable."""
 
 
@@ -98,7 +98,7 @@ def check_regression(
         #      results. Reporting that as a regression is misleading -- the retriever is
         #      unchanged. Raising forces an explicit re-baseline instead of a false alarm.
         #      alt: compare anyway (fails CI every time documentation is written)
-        raise CorpusMismatch(
+        raise CorpusMismatchError(
             f"baseline was measured on corpus {baseline_sha}, this run used {current_sha}. "
             "Re-baseline with: uv run python -m eval.retrieval.runner --write-baseline"
         )
@@ -145,7 +145,7 @@ def main() -> int:
 
     try:
         result = check_regression(baseline, current)
-    except CorpusMismatch as mismatch:
+    except CorpusMismatchError as mismatch:
         print(f"\nSKIP: {mismatch}")
         return 3
 
