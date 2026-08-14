@@ -80,11 +80,21 @@ def corpus_fingerprint() -> str:
     changes the retrieval numbers*. Without a fingerprint the gate reports that as a
     regression, which is both alarming and wrong -- the retriever did not change, the
     corpus did. Recording it lets the gate say 'incomparable' instead of 'regressed'.
+
+    why: hashes ``read_text()``, not ``read_bytes()``. Found live -- CI (Linux, LF) and a
+    Windows checkout of the identical committed content produced different fingerprints,
+    because raw bytes preserve whatever line ending the checkout happened to produce, and
+    ``.gitattributes``' ``eol=lf`` does not retroactively rewrite a working tree that predates
+    it. ``read_text()`` does Python's universal-newline translation (``\\r\\n``/``\\r`` -> ``\\n``)
+    on the way in, which is also what :func:`load_corpus` already reads with -- the fingerprint
+    now hashes the same normalised content the chunker actually sees, on every platform.
+    alt: fix it at the git-checkout layer (renormalise, force autocrlf) -- more fragile, and
+    still leaves the fingerprint computing something different from what gets chunked
     """
     digest = hashlib.sha256()
     for path in sorted(CORPUS_DIR.rglob("*.md")):
         digest.update(path.relative_to(CORPUS_DIR).as_posix().encode())
-        digest.update(path.read_bytes())
+        digest.update(path.read_text(encoding="utf-8").encode("utf-8"))
     return digest.hexdigest()[:16]
 
 

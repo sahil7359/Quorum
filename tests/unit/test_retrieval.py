@@ -6,6 +6,8 @@ disaster being guarded against is a gate that reports PASS having compared nothi
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.infrastructure.retrieval.fusion import reciprocal_rank_fusion
@@ -225,3 +227,56 @@ class TestGate:
 
         assert result.passed
         assert result.compared == 9
+
+
+class TestCorpusFingerprint:
+    """Found live: CI (Linux, LF) and a Windows checkout of identical committed content
+    produced different fingerprints, because the fingerprint hashed raw bytes -- which
+    preserve whatever line ending the checkout happened to produce -- while the corpus loader
+    it exists to describe reads text with universal-newline translation. The gate correctly
+    reported SKIP rather than a false pass/fail, which is the mechanism working, but it meant
+    CI never actually ran the comparison. This is the regression test for the fix."""
+
+    def test_identical_content_with_different_line_endings_hashes_the_same(
+        self, tmp_path: Path
+    ) -> None:
+        from eval.retrieval import runner as runner_module
+
+        original_dir = runner_module.CORPUS_DIR
+        try:
+            lf_dir = tmp_path / "lf"
+            crlf_dir = tmp_path / "crlf"
+            lf_dir.mkdir()
+            crlf_dir.mkdir()
+
+            content = "# Heading\n\nSome text.\n\nMore text.\n"
+            (lf_dir / "doc.md").write_bytes(content.encode("utf-8"))
+            (crlf_dir / "doc.md").write_bytes(content.replace("\n", "\r\n").encode("utf-8"))
+
+            runner_module.CORPUS_DIR = lf_dir
+            lf_fingerprint = runner_module.corpus_fingerprint()
+
+            runner_module.CORPUS_DIR = crlf_dir
+            crlf_fingerprint = runner_module.corpus_fingerprint()
+
+            assert lf_fingerprint == crlf_fingerprint
+        finally:
+            runner_module.CORPUS_DIR = original_dir
+
+    def test_genuinely_different_content_still_hashes_differently(self, tmp_path: Path) -> None:
+        """The fix must not make the fingerprint insensitive to real content changes --
+        proves this is still a working gate, not a check that always passes."""
+        from eval.retrieval import runner as runner_module
+
+        original_dir = runner_module.CORPUS_DIR
+        try:
+            runner_module.CORPUS_DIR = tmp_path
+            (tmp_path / "doc.md").write_text("original content\n", encoding="utf-8")
+            first = runner_module.corpus_fingerprint()
+
+            (tmp_path / "doc.md").write_text("changed content\n", encoding="utf-8")
+            second = runner_module.corpus_fingerprint()
+
+            assert first != second
+        finally:
+            runner_module.CORPUS_DIR = original_dir
