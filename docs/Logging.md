@@ -51,6 +51,19 @@ so this catalogue cannot silently drift from the code.
 Emitted by `TracedNode` in the base class, **never by a node itself** — so a node that is
 not traced cannot be added. Enforced by `test_every_node_is_traced`.
 
+## Tracing spans
+
+| Event | Level | Why it exists | Key fields |
+| --- | --- | --- | --- |
+| `span.started` | DEBUG | Marks the start of a traced region with a `span_id`, so a start and its matching end can be joined without a separate tracing backend. | `span`, `span_id`, plus whatever attributes the caller passed |
+| `span.completed` | DEBUG | The other half of the pair, with the duration. Aggregating cost/latency across a run means grouping these by `span`, which is exactly what `docs/Design.md`'s "traces, not just logs" distinction is for. | `span`, `span_id`, `duration_ms` |
+| `span.failed` | WARN | A span that raised. WARN, not ERROR — the node's own `node.failed` (above) is the authoritative failure signal; this is the timing record for the same failure, not a second alarm. | `span`, `span_id`, `duration_ms`, `error` |
+
+Emitted by `StructlogTracer.span()`, a context manager — `with self._tracer.span(name):` in
+`TracedNode.__call__`. DEBUG rather than INFO on purpose: at INFO, every node's `node.started`/
+`node.completed` pair already narrates the review; the span events are the finer-grained record
+underneath that, useful when actually debugging latency and noisy otherwise.
+
 ## Routing — the most important line in the system
 
 | Event | Level | Why it exists | Key fields |

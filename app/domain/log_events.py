@@ -29,6 +29,15 @@ NODE_STARTED: Final = "node.started"
 NODE_COMPLETED: Final = "node.completed"
 NODE_FAILED: Final = "node.failed"
 
+# --- tracing spans ----------------------------------------------------------
+# why: StructlogTracer's spans are structured log lines, not a separate tracing protocol
+#      (see infrastructure/observability/tracing.py's module docstring) -- so they go through
+#      the same event catalogue and documentation requirement as everything else, rather than
+#      being a second, undocumented category of "thing this project logs".
+SPAN_STARTED: Final = "span.started"
+SPAN_COMPLETED: Final = "span.completed"
+SPAN_FAILED: Final = "span.failed"
+
 # --- the routing decision --------------------------------------------------
 ROUTE_DECIDED: Final = "route.decided"
 ROUTE_LLM_IGNORED: Final = "route.llm_removal_ignored"
@@ -82,6 +91,9 @@ ALL_EVENTS: Final[frozenset[str]] = frozenset(
         NODE_STARTED,
         NODE_COMPLETED,
         NODE_FAILED,
+        SPAN_STARTED,
+        SPAN_COMPLETED,
+        SPAN_FAILED,
         ROUTE_DECIDED,
         ROUTE_LLM_IGNORED,
         ROUTE_LLM_UNPARSEABLE,

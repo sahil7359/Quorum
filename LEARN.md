@@ -7,6 +7,40 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 10 — Observability: logs, traces, and audit are three different questions
+
+`structlog` had been a declared dependency since the very first commit and had never been
+imported outside a test fixture. Every phase built and tested against `RecordingLogger` (a
+fake that appends to a list) and `NullTracer` (a fake that does nothing) — which is the right
+way to test the *application* logic, but it meant nobody had ever asked a real logger to
+actually redact a secret, or asked a real tracer to actually time anything. Building the real
+`StructlogLogger` and `StructlogTracer` this phase was the first time either claim got checked.
+
+**The distinction I keep coming back to, now that all three are real:** logs, traces, and
+audit answer different questions, for different readers, on different retention. A *log* line
+answers "what happened, in order" — for me, debugging, at 1am, and it's fine if it rotates
+away in a week. A *trace* (here, a structured span with a matching start/end and a duration)
+answers "how long did this specific thing take, and can I aggregate that across a thousand
+runs" — same reader, different shape of question, because "what happened" and "how long did
+it take" don't compress into the same log line without losing one of them. *Audit* answers "who
+decided this, and can I prove it six months from now" — a different reader entirely (a human
+checking their own trail, not me debugging), which is why it's the one of the three that lives
+in a database table with `UPDATE`/`DELETE` refused by the database itself, not in a log stream
+that quietly rotates the proof away. Building a real tracer made this concrete instead of
+aspirational: a `span.completed` event and a `node.completed` event look almost identical, and
+the only reason to have both is that one is the debugging narrative and the other is the
+timing record, and conflating them would have made both worse at their actual job.
+
+**Redaction almost shipped a version that would have broken the exact thing this phase exists
+to guarantee.** The natural way to write "catch an unknown-shaped secret" is a high-entropy
+regex — 32+ alphanumeric characters. First version of that regex also matched every `run_id`
+(a UUID) and every commit SHA (40 hex characters) in every log line, because a secret and a
+correlation id are both just "a long string of characters" to a regex that isn't told the
+difference. Caught it by testing the redactor against a real `run_id` before trusting it, not
+by reasoning about it in the abstract — the fix excludes anything UUID-shaped or pure-hex,
+which are exactly the shapes this project's own identifiers take and exactly the shapes a real
+secret doesn't.
+
 ## Phase 9 — Security baseline: a guardrail that was only a docstring
 
 Went through every control in `docs/Guardrails.md` and checked the test name listed against
