@@ -1,5 +1,5 @@
 {
-  "corpus_sha": "c889e29a1153da53",
+  "corpus_sha": "6c4f1b7bbdeac4fb",
   "corpus_files": 18,
   "corpus_chunks": 224,
   "queries": 20,
@@ -13,7 +13,7 @@
       "recall_at_5": 0.495,
       "success_at_5": 0.9,
       "queries_scored": 20,
-      "latency_ms_per_query": 15.69
+      "latency_ms_per_query": 16.43
     },
     {
       "config": "bm25",
@@ -21,7 +21,7 @@
       "recall_at_5": 0.5908,
       "success_at_5": 0.85,
       "queries_scored": 20,
-      "latency_ms_per_query": 0.89
+      "latency_ms_per_query": 0.86
     },
     {
       "config": "hybrid",
@@ -29,7 +29,7 @@
       "recall_at_5": 0.5533,
       "success_at_5": 0.85,
       "queries_scored": 20,
-      "latency_ms_per_query": 16.62
+      "latency_ms_per_query": 17.33
     },
     {
       "config": "hybrid+rerank",
@@ -37,7 +37,7 @@
       "recall_at_5": 0.52,
       "success_at_5": 0.8,
       "queries_scored": 20,
-      "latency_ms_per_query": 959.25
+      "latency_ms_per_query": 960.16
     }
   ],
   "rerank_delta_ndcg": -0.0498,

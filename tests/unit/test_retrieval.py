@@ -280,3 +280,31 @@ class TestCorpusFingerprint:
             assert first != second
         finally:
             runner_module.CORPUS_DIR = original_dir
+
+    def test_file_order_is_case_sensitive_regardless_of_platform(self, tmp_path: Path) -> None:
+        """The second live bug, found after the first fix: identical, byte-identical content
+        (after normalising line endings) still produced two different fingerprints between a
+        Windows checkout and CI (Linux), because the incremental hash is sensitive to file
+        *order*, and `pathlib.Path` compares case-insensitively on Windows and case-sensitively
+        on Linux -- 'adr/0001-x.md' sorts before 'AppFlow.md' on Windows, after it on Linux.
+        This asserts the fix: order matches a plain, case-sensitive string sort of the
+        relative paths, which is what every platform will agree on."""
+        from eval.retrieval import runner as runner_module
+
+        (tmp_path / "adr").mkdir()
+        (tmp_path / "adr" / "0001-x.md").write_text("adr content\n", encoding="utf-8")
+        (tmp_path / "AppFlow.md").write_text("appflow content\n", encoding="utf-8")
+        (tmp_path / "Design.md").write_text("design content\n", encoding="utf-8")
+
+        original_dir = runner_module.CORPUS_DIR
+        try:
+            runner_module.CORPUS_DIR = tmp_path
+            ordered = [
+                p.relative_to(tmp_path).as_posix() for p in runner_module._sorted_corpus_files()
+            ]
+        finally:
+            runner_module.CORPUS_DIR = original_dir
+
+        # A plain Python string sort is case-sensitive on every platform -- the
+        # platform-independent ground truth this function has to agree with everywhere.
+        assert ordered == sorted(["adr/0001-x.md", "AppFlow.md", "Design.md"])

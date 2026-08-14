@@ -73,6 +73,23 @@ class EvalReport:
     rerank_delta_recall: float
 
 
+def _sorted_corpus_files() -> list[Path]:
+    """Every corpus markdown file, in a deterministic, platform-independent order.
+
+    why: not ``sorted(CORPUS_DIR.rglob(...))``. ``pathlib.PureWindowsPath`` compares
+    case-*insensitively* (Windows filesystems are case-insensitive); Linux's is
+    case-*sensitive*. ``adr/0001-....md`` sorts before ``AppFlow.md`` on Windows and after it
+    on Linux -- 'a' and 'A' compare equal on Windows so the tie breaks on the second
+    character, but compare unequal on Linux so the first character alone decides it. Found
+    live: identical committed content, byte-identical after the read_text() fix above, still
+    produced two different fingerprints, because :func:`corpus_fingerprint` hashes
+    incrementally and file *order* changes the hash even when no file's content does. Sorting
+    on the explicit relative-path string, which ``str.__lt__`` always compares
+    case-sensitively regardless of OS, makes the order the same everywhere.
+    """
+    return sorted(CORPUS_DIR.rglob("*.md"), key=lambda p: p.relative_to(CORPUS_DIR).as_posix())
+
+
 def corpus_fingerprint() -> str:
     """Hash of every corpus file's content.
 
@@ -92,7 +109,7 @@ def corpus_fingerprint() -> str:
     still leaves the fingerprint computing something different from what gets chunked
     """
     digest = hashlib.sha256()
-    for path in sorted(CORPUS_DIR.rglob("*.md")):
+    for path in _sorted_corpus_files():
         digest.update(path.relative_to(CORPUS_DIR).as_posix().encode())
         digest.update(path.read_text(encoding="utf-8").encode("utf-8"))
     return digest.hexdigest()[:16]
@@ -100,7 +117,7 @@ def corpus_fingerprint() -> str:
 
 def load_corpus() -> list[Chunk]:
     chunks: list[Chunk] = []
-    for path in sorted(CORPUS_DIR.rglob("*.md")):
+    for path in _sorted_corpus_files():
         relative = "docs/" + path.relative_to(CORPUS_DIR).as_posix()
         chunks.extend(
             chunk_markdown(
