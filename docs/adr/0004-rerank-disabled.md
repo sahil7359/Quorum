@@ -20,9 +20,7 @@ each separately, so they can express "this passage answers this question" rather
 **Reranking is off by default** (`QUORUM_RERANK_ENABLED=false`), kept behind a flag rather
 than deleted.
 
-Measured on 20 golden queries over 157 chunks from this repository's own `docs/` tree,
-`BAAI/bge-small-en-v1.5` + `Xenova/ms-marco-MiniLM-L-6-v2`:
-
+Measured with `BAAI/bge-small-en-v1.5` + `Xenova/ms-marco-MiniLM-L-6-v2`.
 These are the numbers in the committed baseline, `eval/baselines/retrieval.json`, measured
 over 20 golden queries against the frozen corpus in `eval/corpus/` (16 files, 178 chunks).
 Reproduce with `uv run python -m eval.retrieval.runner`:
@@ -73,16 +71,17 @@ rather than a closed question.
 
 **Good**
 
-- Retrieval is 91× faster per query, which matters directly: three specialists × one query
-  each = 2.3s of pure rerank latency removed from every review.
+- Retrieval is ~63× faster per query, which matters directly: three specialists × one query
+  each is roughly 2.3s of pure rerank latency removed from every review.
 - One fewer model to download and hold in 512MB of RAM.
 - The project has a published negative result, which is more informative than a positive one
   — it shows the eval is capable of changing a decision.
 
 **Bad, and accepted**
 
-- The result is corpus-specific and I should not over-claim it. 20 queries over 157 chunks
-  of *my own* documentation is a small, self-labelled sample. What I can defend is "on this
+- The result is corpus-specific and I should not over-claim it. 20 queries over 178 chunks
+  of *my own* documentation is a small, self-labelled sample -- and the absolute scores
+  demonstrably move when the corpus does. What I can defend is "on this
   corpus, with these models, reranking lost"; not "cross-encoder reranking is not worth it".
 - Keeping dead-by-default code costs a little clarity.
 - If the gallery corpus (six third-party repositories, Phase 12) behaves differently, this
@@ -94,5 +93,5 @@ rather than a closed question.
 > assumption, and the comparison can be re-run at any time.
 
 `eval/retrieval/runner.py` produces the table above; `eval/baselines/retrieval.json` is the
-committed baseline; `tests/unit/test_retrieval_eval_gate.py` fails when a configuration
-regresses against it.
+committed baseline; `tests/unit/test_retrieval.py::TestGate` fails when a configuration
+regresses against it, and refuses to compare across different corpora.
