@@ -46,3 +46,25 @@ it affects. This is the fast index for finding where something lives.
 - Added `docs/adr/0002-langgraph-in-application.md` — LangGraph is a named exception in the
   application layer; the graph is the application logic. Affects Phase 4.
 - Added `learn/00-scaffolding.md`.
+
+## Phase 1 — Domain core — 2026-08-14
+
+- Added `app/domain/values.py` — `ChunkId`/`ChunkLocator` (chunk-level identity derived from
+  repo, commit, file, section and byte offsets), `Severity` with an explicit `rank` because
+  alphabetical order is backwards, `SpecialistKind` as a closed three-member set, `RunId`,
+  `FindingId`, `TokenUsage`, `BudgetState`. Affects retrieval, citations and budgeting.
+- Added `app/domain/entities.py` — the `CandidateFinding` / `Finding` split that makes
+  cite-or-drop a type transition, plus `Diff`, `ChangedFile`, `PullRequest`, `RepoRef`,
+  `Chunk`, `Citation`, `RoutingDecision`, `Review`, `Approval`, `AuditEvent`, `CacheKey`.
+- Added `app/domain/grounding.py` — `ground_candidates()` (cite-or-drop with four itemised
+  drop reasons and per-specialist visibility) and `deduplicate()`. Affects Phase 4 synthesis.
+- Added `app/domain/ports.py` — 11 Protocol ports. `CodeHostPort` write methods take an
+  `Approval` as a required argument, so an unauthorised write is inexpressible.
+- Added `app/domain/errors.py` — the failures the design anticipates, including
+  `SpecialistFailedError` (handled) vs `AllSpecialistsFailedError` (fatal).
+- Added `tests/unit/test_values.py`, `test_entities.py`, `test_grounding.py` and
+  `tests/architecture/test_ports_are_protocols.py` — 133 tests total.
+- Fixed `docs/Schema.md` — the chunk-id invariant said ids "round trip" to a locator. They
+  do not; a hash is not reversible. Reworded to *verifiable against*, test renamed to
+  `test_chunk_id_verifies_against_its_locator`.
+- Added `learn/01-domain-and-ports.md`.

@@ -61,9 +61,9 @@ chunk_id = hashlib.sha256(locator.encode()).hexdigest()[:16]
 | --- | --- |
 | Two chunks from the same file and section but different offsets get different ids | `test_offsets_disambiguate_chunk_ids` |
 | Re-ingesting the same commit produces identical ids | `test_chunk_ids_are_stable_across_reingest` |
-| A chunk id resolves back to a full `(file, section, offset)` locator | `test_chunk_id_round_trips_to_locator` |
+| A chunk id is *verifiable against* its stored `(file, section, offset)` locator. The id is a hash, not a reversible encoding — resolution runs locator→id, never id→locator | `test_chunk_id_verifies_against_its_locator` |
 | Ingesting a different commit produces different ids for the same text | `test_commit_sha_participates_in_chunk_id` |
-| No chunk spans more than one file | `test_chunk_never_spans_files` |
+| No chunk spans more than one file (structurally impossible: a locator names exactly one `file_path`). Asserted against the real chunker in Phase 3 | `test_chunk_never_spans_files` (Phase 3) |
 
 16 hex chars = 64 bits. At the scale of six repositories (order 10⁴ chunks) collision
 probability is ~10⁻¹¹. The `UNIQUE` constraint on the locator tuple would catch one anyway.
