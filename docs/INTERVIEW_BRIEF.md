@@ -267,3 +267,97 @@ the retrieval interface assumed something the pgvector adapter can't do.
 **Gate-failure proofs run this phase:** 3 of 3 — file-level chunk ids (4 tests red),
 removing the per-specialist visibility check (2 tests red), giving a port an implementation
 (1 test red). All restored.
+
+---
+
+## Phase 2 — MCP client
+
+### Five questions
+
+**1. You had no GitHub token. How did you test an integration?**
+
+I built a fake GitHub MCP server using the real MCP SDK and had the client talk to it over
+real stdio — a genuine subprocess, handshake, tool discovery and structured results. Only
+GitHub itself is fake. That means the things I could plausibly get wrong — protocol handling,
+unwrapping `structured_content`, propagating `is_error`, connection lifecycle — are actually
+exercised, whereas a mocked session would have tested my mock. What I can't claim is that the
+argument names match the real server; those come from its documented schema, not a live
+handshake, and that's the first thing to verify when a token exists.
+
+**2. Why are the allowlist and write guard in the client rather than in the graph?**
+
+Because a guard in the `publish` node is a property of one call path, and a guard in the
+client is a property of the client. Today `publish` is the only caller — but Phase 7 adds an
+MCP server exposing Quorum's review capability and Phase 8 adds an HTTP API. Neither would
+inherit a check that lives in a graph node. The claim I want to make is "this agent cannot
+merge your pull request", and that has to be true of the thing holding the credential. There's
+a test that reaches past the public method straight into `_call` and still gets refused.
+
+**3. Isn't the `public_repo` token scope enough on its own?**
+
+It's a real control and it stays, but it bounds the damage *class*, not the *target* —
+`public_repo` still permits commenting on any public repository. It also fails the
+demonstration test: "GitHub would have stopped it" isn't something a reviewer of my codebase
+can see. The allowlist makes the write surface two named tools, asserted by a test, so if it
+ever changes that shows up in review rather than in a log.
+
+**4. Tell me about a bug you found in this phase.**
+
+The good one came from the rule that every gate has to be proven able to fail. The diff
+parser excluded lines starting with `+++` on the grounds that they're file headers. I removed
+the exclusion expecting a test to go red — and the suite stayed green. Two problems. First,
+the guard was dead code: the parser only counts inside a hunk, and `+++ b/path` headers sit
+before the first `@@`, so they can never reach the counter. Second, it was actively wrong —
+an added line whose *content* starts with `++` arrives as `+++...` and was being silently
+uncounted. That's not hypothetical here, because my retrieval corpus is documentation and a
+CONTRIBUTING.md explaining how to read a patch contains exactly those lines. I deleted the
+guard rather than fixing it and wrote two tests that exercise the real case. The lesson I
+took: I had a rationale comment, a matching test name and a passing suite — three signals
+agreeing, all wrong.
+
+**5. What surprised you about the MCP SDK?**
+
+It had moved. `mcp` resolved to 2.0.0, where `FastMCP` no longer exists — it's `MCPServer` —
+and result fields are snake_case rather than the camelCase of v1. I found that by writing a
+twenty-line smoke script and running it before writing any real code, which cost ten minutes
+and saved an hour debugging a client written against an API that no longer existed. It's a
+habit I'd keep: verify the shape of a dependency's API by running it, not by recalling it.
+
+### Most likely to be challenged
+
+> *"Your integration test talks to a server you wrote. You've verified that your client can
+> talk to your own fake — which is close to testing nothing. The real GitHub MCP server will
+> behave differently and you have no idea how."*
+
+Largely fair, and I'd separate what the test does and doesn't establish rather than defend
+it wholesale.
+
+What it genuinely establishes: the MCP protocol layer works. The subprocess launches, the
+JSON-RPC handshake completes, tools are discovered, structured results unwrap correctly,
+error results become domain errors, and the connection tears down cleanly. None of that is
+my fake's behaviour — it's the SDK's, and it's the layer where I'd otherwise have made
+mistakes. The guards are also genuinely tested: `test_destructive_tool_is_refused_even_when_advertised`
+refuses a `delete_repository` tool that really is advertised by the connected server.
+
+What it does not establish, and I'd say so unprompted: that GitHub's actual argument names
+and response shapes match my fixtures. `pullNumber` vs `pull_number`, the exact nesting of
+`head.sha` — those come from documentation, and documentation drifts. If they're wrong, every
+read path fails on first contact.
+
+The honest summary is that I've tested the half I control and fixtured the half I can't
+reach, and I know which is which. Given the alternative was mocking the session entirely, I'd
+make the same call again — but the first thing I'd do with a token is run the read paths
+against the real server and fix what the fixtures got wrong.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Tests passing | 196 (22 over real stdio) | `uv run pytest` | Nothing about the *real* GitHub MCP server — argument names and payload shapes are fixtured from documentation |
+| Write surface | 2 tools | `test_write_surface_is_exactly_two_tools` | That the token cannot do more; it bounds what *Quorum* reaches for |
+| mypy `--strict` errors | 0 across 36 files | `uv run mypy` | — |
+| Bugs found by gate proofs | 1 | Removing the `+++` exclusion left the suite green | — |
+
+**Gate-failure proofs run this phase:** 3 attempted, **1 initially failed to fail** — which
+found the diff-parser bug. After the fix, all 3 confirmed: allowlist removed (2 red), write
+guard removed (4 red), wrong `+++` exclusion reinstated (2 red).
