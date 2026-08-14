@@ -145,3 +145,7 @@ it affects. This is the fast index for finding where something lives.
 - Added `docs/adr/0005-heuristic-floor-llm-extends.md` and `learn/04-multi-agent.md`.
 - Added dependencies: `langgraph`, `httpx` (the latter was already transitive; now explicit).
 - Tests: 325 → 404.
+- Added `eval/smoke/live_review.py` — one real review end to end against local Ollama.
+  **First live run:** 3 model calls, 6,967 tokens, 16.1s, 2 findings, 0 dropped. One finding
+  aptly grounded, one misgrounded — demonstrating that a citation proves grounding, not
+  aptness. Explicitly a smoke run, not a metric.

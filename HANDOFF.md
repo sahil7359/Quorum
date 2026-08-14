@@ -688,3 +688,54 @@ Phase 5 (HITL + audit) starts with:
   `pgvector/pgvector:pg16` is available.
 - `AuditPort`, `ReviewCachePort` and `BudgetPort` are defined in `app/domain/ports.py` with
   **no adapters at all**.
+
+---
+
+## Addendum — the first live review (run after Phase 4 was committed)
+
+`uv run python -m eval.smoke.live_review`, against local Ollama (`llama3.1:8b`) and the real
+hybrid retriever over the 164-chunk frozen corpus. One hand-written diff that concatenates a
+system prompt with untrusted diff content — a change the corpus explicitly forbids.
+
+**It worked end to end.**
+
+```
+routing     : ['correctness', 'security', 'test_coverage']
+  heuristics: correctness (always); test_coverage (source changed, no tests);
+              1 new public symbol: build_prompt
+  model added: security — "new public symbol 'build_prompt' suggests the change is
+               significant enough to warrant security review"
+cost        : 3 model calls, 6,967 tokens, 16.1s wall clock
+findings    : 2 surfaced, 0 dropped
+```
+
+The security finding is **genuinely right and aptly grounded**:
+
+> `[high] security: Diff content is untrusted and should be fenced`
+> cites `33e495d306e9c1ad` → `docs/Guardrails.md — Guardrails > 2. Controls`
+
+That is the system doing exactly what it exists to do: it found a real violation of a rule
+written in the repository's own documentation, and cited the rule.
+
+The correctness finding is **misgrounded**, and I am glad it happened on run one:
+
+> `[high] correctness: Logic error: system prompt is not constant`
+> cites `b0367541579451eb` → `docs/AppFlow.md — Application Flow > 5. route node`
+
+The *claim* is reasonable. The *citation does not support it* — the `route` node section of
+AppFlow has nothing to say about prompt constancy. Cite-or-drop passed it because the chunk is
+real and was shown to that specialist, which is all cite-or-drop checks.
+
+**This is the limitation I wrote down in Phase 1, demonstrated in practice on the first real
+run: a citation proves grounding, not aptness.** I have no test for aptness. What I have is
+retrieval quality bounding how often the wrong chunk comes back, and the citation rendered in
+the output so a human can check it in one click — which is precisely what let me catch this in
+about four seconds.
+
+A second, smaller observation: the model wrote the reference marker into its prose
+(*"according to [2] chunk_id: b03675415794"*). Harmless, and a prompt-formatting fix, but the
+kind of thing you only see by running it.
+
+**What this is not:** a metric. One hand-written diff, one model, `n=1`. It says the stack
+holds together; it says nothing about review quality. That evidence comes in Phase 6, against
+merged pull requests carrying real human review comments.
