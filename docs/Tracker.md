@@ -34,7 +34,7 @@ Legend: ✅ done · 🟡 in progress · ⬜ not started · ⚠ done with a cavea
 | Live public URL, no setup needed | ⬜ | Phase 13 |
 | MCP consumed | ⚠ | Client built and tested over real stdio against a fake MCP server. **Not yet run against the real GitHub MCP server** — no token. |
 | MCP server published | ✅ | Four read-only tools over stdio, tested with a real MCP client. Schema in `docs/MCP.md`. HTTP transport in Phase 8. |
-| NDCG@5 rerank delta reported honestly | ✅ | **−0.0793** — reranking lost and was cut. ADR-0004 |
+| NDCG@5 rerank delta reported honestly | ✅ | **−0.0498** — reranking lost and was cut. ADR-0004 |
 | Trajectory eval gating CI vs committed baseline | ⬜ | Phase 6 + 11 |
 | HITL approval on every write path + audit log | ⚠ | Built and tested — durable interrupt resumes across a process boundary, audit append-only at the DB. **Never exercised against real GitHub** (no token). |
 | `learn/00`–`learn/13` complete | 🟡 | 7 of 14 (00-05, 07) |
@@ -48,10 +48,10 @@ the correct entry; a plausible number is not.
 
 | Number | Value | How measured | What it does not prove |
 | --- | --- | --- | --- |
-| NDCG@5 (hybrid) | **0.5811** | 20 golden queries, frozen corpus, `eval/baselines/retrieval.json` | Labels are self-written; NDCG rewards ordering Quorum does not need |
-| Recall@5 (hybrid) | **0.6283** | as above, normalised by `min(len(relevant), 5)` | Same label caveat |
-| Success@5 (hybrid) | **0.9500** | any relevant chunk in top 5 | Closest metric to Quorum's real need; still self-labelled |
-| Rerank delta NDCG@5 | **−0.0793** | hybrid+rerank minus hybrid | Only on this corpus with this model pair |
+| NDCG@5 (hybrid) | **0.5260** | 20 golden queries, frozen corpus, `eval/baselines/retrieval.json` | Labels are self-written; NDCG rewards ordering Quorum does not need |
+| Recall@5 (hybrid) | **0.5533** | as above, normalised by `min(len(relevant), 5)` | Same label caveat |
+| Success@5 (hybrid) | **0.8500** | any relevant chunk in top 5 | Closest metric to Quorum's real need; still self-labelled |
+| Rerank delta NDCG@5 | **−0.0498** | hybrid+rerank minus hybrid | Only on this corpus with this model pair |
 | Finding precision | TODO: not yet measured | Phase 6 trajectory eval | — |
 | Finding recall | TODO: not yet measured | Phase 6 trajectory eval | — |
 | Specialist routing accuracy | TODO: not yet measured | Phase 6 trajectory eval | — |

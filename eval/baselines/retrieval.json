@@ -1,7 +1,7 @@
 {
-  "corpus_sha": "bcbaf3c2cf52d77f",
-  "corpus_files": 15,
-  "corpus_chunks": 164,
+  "corpus_sha": "f7b0555dbab515da",
+  "corpus_files": 18,
+  "corpus_chunks": 223,
   "queries": 20,
   "k": 5,
   "embedding_model": "BAAI/bge-small-en-v1.5",
@@ -9,37 +9,37 @@
   "results": [
     {
       "config": "dense",
-      "ndcg_at_5": 0.5768,
-      "recall_at_5": 0.5867,
+      "ndcg_at_5": 0.5148,
+      "recall_at_5": 0.545,
       "success_at_5": 0.9,
       "queries_scored": 20,
-      "latency_ms_per_query": 8.6
+      "latency_ms_per_query": 11.66
     },
     {
       "config": "bm25",
-      "ndcg_at_5": 0.5507,
-      "recall_at_5": 0.6408,
+      "ndcg_at_5": 0.4905,
+      "recall_at_5": 0.5658,
       "success_at_5": 0.85,
       "queries_scored": 20,
-      "latency_ms_per_query": 0.47
+      "latency_ms_per_query": 0.63
     },
     {
       "config": "hybrid",
-      "ndcg_at_5": 0.5811,
-      "recall_at_5": 0.6283,
-      "success_at_5": 0.95,
+      "ndcg_at_5": 0.526,
+      "recall_at_5": 0.5533,
+      "success_at_5": 0.85,
       "queries_scored": 20,
-      "latency_ms_per_query": 9.1
+      "latency_ms_per_query": 12.33
     },
     {
       "config": "hybrid+rerank",
-      "ndcg_at_5": 0.5018,
-      "recall_at_5": 0.5575,
-      "success_at_5": 0.85,
+      "ndcg_at_5": 0.4762,
+      "recall_at_5": 0.52,
+      "success_at_5": 0.8,
       "queries_scored": 20,
-      "latency_ms_per_query": 812.1
+      "latency_ms_per_query": 776.99
     }
   ],
-  "rerank_delta_ndcg": -0.0793,
-  "rerank_delta_recall": -0.0708
+  "rerank_delta_ndcg": -0.0498,
+  "rerank_delta_recall": -0.0333
 }

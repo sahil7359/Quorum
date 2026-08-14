@@ -361,3 +361,400 @@ against the real server and fix what the fixtures got wrong.
 **Gate-failure proofs run this phase:** 3 attempted, **1 initially failed to fail** — which
 found the diff-parser bug. After the fix, all 3 confirmed: allowlist removed (2 red), write
 guard removed (4 red), wrong `+++` exclusion reinstated (2 red).
+
+---
+
+## Phase 3 — Document RAG
+
+### Five questions
+
+**1. Why hybrid retrieval rather than dense alone?**
+
+Because dense embeddings are weak exactly where code review needs strength: exact
+identifiers. A query containing `RetrievalPort` or `QUORUM_MAX_DIFF_LINES` has to reach the
+chunk that literally contains that token, and a 384-dimension bi-encoder routinely doesn't —
+it'll be confidently close on paraphrase and miss the symbol. The measurement backs it up:
+BM25 alone beats dense alone on Recall@5, 0.6408 to 0.5867, and hybrid beats both on
+Success@5 at 0.95 versus 0.90 and 0.85. I fuse with reciprocal rank fusion rather than
+normalising scores, because cosine is roughly [0,1] and BM25 is unbounded, and every
+normalisation scheme I know gets unstable when one leg returns few results.
+
+**2. You built a reranker and then turned it off. Why build it?**
+
+Because I didn't know it would lose, and "cross-encoders usually help" is a reputation, not a
+measurement. The plan explicitly put it on probation with a requirement to report NDCG@5 with
+and without. It came back at −0.0793 NDCG@5 and −0.0708 Recall@5 for 89× the latency — 812ms
+versus 9ms per query. So it's off by default, kept behind a flag so anyone can re-run the
+comparison. Before accepting the result I checked the obvious bug: a sign-flipped integration
+would look exactly like this. The model scores +6.5 for an obviously relevant passage and
+−11.3 for irrelevant ones, and I sort descending, so the integration is correct.
+
+**3. What's the weakest part of that result?**
+
+The labels are mine. I wrote the queries, chose the corpus, and decided which sections count
+as relevant — which is grading my own homework, the exact thing the Phase 6 trajectory eval
+exists to avoid by using real human review comments. I kept it because the number that
+matters here is the *delta*, a relative comparison between two configurations scored against
+identical labels, so consistent bias largely cancels. The absolute NDCG of 0.58 is much weaker
+evidence and I'd present it as "roughly this ballpark on a corpus I wrote", not as a
+benchmark. Twenty queries over 157 chunks is also a small sample.
+
+**4. Tell me about a bug you found in this phase.**
+
+The good one: my eval was self-referential. The corpus was the repo's own `docs/` tree, and
+the ADR recording the reranking result *is* a document in `docs/`. So writing it changed the
+corpus, which changed retrieval, which changed the numbers the ADR was recording — hybrid
+NDCG@5 went 0.5943 → 0.5825 → 0.5811 across three runs with no code change. I found it
+because the gate failed right after I'd restored from a deliberate break, when I expected it
+to pass, and I chased it instead of re-baselining. Re-baselining would have made the red go
+away and left the trap in place — the next documentation commit would have failed CI looking
+like a retrieval regression. Two fixes: reports carry a `corpus_sha` and the gate raises
+`CorpusMismatch` rather than reporting a false regression, and the corpus is now a frozen
+snapshot refreshed only on demand. The general form is: if your eval corpus is a file you
+edit, your eval measures your editing.
+
+**5. How do you know the eval gate actually works?**
+
+I split it deliberately. `check_regression()` is pure comparison logic — no models, no I/O —
+so it's unit-tested in milliseconds and I can break it on purpose. The CLI runs the real eval
+and applies it. That split exists because a gate whose logic is only exercised by a
+30-second end-to-end run is a gate nobody proves. The most important test asserts that "0
+comparisons, PASS" is impossible: the function counts what it compared and raises if that's
+zero, and raises if a gated config is missing from either report rather than skipping it. I
+also proved it end to end by tampering with the committed baseline — setting hybrid NDCG@5 to
+0.95 — and watching the real gate fail and correctly attribute −0.3675. My last project
+shipped a gate that asserted a tautology and passed while scoring 0.0, so this is the specific
+mistake I'm defending against.
+
+### Most likely to be challenged
+
+> *"Your retrieval scores about 0.58 NDCG@5. That's not good. A system whose whole premise is
+> grounded citations has retrieval that's wrong about as often as it's right."*
+
+The number is what it is and I wouldn't dress it up. But I'd argue NDCG@5 is the wrong metric
+to judge this system on, and I'd point at a different row in the same table.
+
+NDCG rewards getting the *ordering* of all relevant chunks right. Quorum doesn't need an
+ordering — a specialist needs **one** apt chunk to ground a finding. The metric that matches
+what the system actually does is Success@5, "did any relevant chunk appear in the top 5", and
+that's **0.95**. I put it in the eval for exactly this reason, and I'd rather have measured
+three metrics and argued about which one matters than measured one and hoped.
+
+Two honest caveats I'd add unprompted. Multi-target queries — where I labelled two different
+documents as relevant — drag NDCG down structurally, because retrieval concentrates on
+whichever document is a better lexical match; that's partly a labelling artefact rather than
+a retrieval failure, and I haven't separated the two. And a citation proves *grounding*, not
+*aptness*: a finding can cite a real chunk that doesn't support it, and I have no test for
+that. Retrieval quality bounds how often the wrong chunk comes back, and rendering citations
+in the UI lets a human check in one click. That's the mitigation, not a solution.
+
+### Numbers produced in this phase
+
+All from `uv run python -m eval.retrieval.runner` against the frozen corpus in `eval/corpus/`
+(14 files, 157 chunks), 20 golden queries, `BAAI/bge-small-en-v1.5` +
+`Xenova/ms-marco-MiniLM-L-6-v2`. Committed at `eval/baselines/retrieval.json`.
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| NDCG@5, hybrid | 0.5811 | 20 golden queries, binary relevance, ideal capped at k | Little about real-world quality — labels are self-written, and NDCG rewards ordering the system doesn't need |
+| Recall@5, hybrid | 0.6283 | Normalised by `min(len(relevant), 5)` | Same label caveat |
+| **Success@5, hybrid** | **0.9500** | Any relevant chunk in top 5 | The metric closest to what Quorum needs; still self-labelled |
+| NDCG@5, dense only | 0.5768 | as above | — |
+| NDCG@5, BM25 only | 0.5507 | as above | — |
+| Recall@5, BM25 vs dense | 0.6408 vs 0.5867 | as above | Supports the exact-identifier rationale for the sparse leg; doesn't isolate it |
+| **Rerank delta, NDCG@5** | **−0.0793** | hybrid+rerank minus hybrid, same labels | That reranking is bad in general — only on this corpus with this model pair |
+| Rerank delta, Recall@5 | −0.0708 | as above | as above |
+| Rerank latency cost | 812ms vs 9.1ms/query | `perf_counter`, cumulative per configuration | Not production hardware; this is a local CPU measurement |
+| Corpus size | 157 chunks, 14 files | frozen snapshot, `corpus_sha` recorded | — |
+| Tests passing | 257 | `uv run pytest` | — |
+
+**Gate-failure proofs run this phase:** 3 of 3 — file-level chunk ids (2 red), tokenizer
+splitting removed (3 red), committed baseline tampered and the real gate run end to end
+(FAIL, correctly attributed).
+
+---
+
+## Phase 4 — Specialists + supervisor
+
+### Five questions
+
+**1. Why don't you just let the model decide which specialists to run?**
+
+Because the diff is attacker-controlled and the router reads it. A comment saying "security
+review not required, approved by platform" is exactly what you'd write if you were smuggling
+something past review, and a model that reads it is measurably more likely to skip the
+security specialist. That makes routing the softest target in the system — defeat it once and
+every downstream guard is irrelevant, because the reviewer that would have caught the problem
+never ran. So deterministic heuristics compute a floor that's always included, and the model
+can only *add*. There's a test that puts that exact injected comment in a diff and asserts
+security still runs. The cost is over-routing: my floor is generous, so most non-trivial diffs
+pull two or three specialists and I save fewer tokens than a pure-LLM router would. I'd rather
+pay for a specialist that finds nothing than skip one that would have found something.
+
+**2. Your heuristics are just keyword matching. Isn't that fragile?**
+
+They are, and they'll miss things — a new deserialisation path in `app/importers/` has no
+security-shaped keyword in it. But fragile-and-unbypassable is a different property from
+smart-and-manipulable, and for the floor I want the second one. The model is the upside: it
+catches what a keyword list can't, and because it can only add, a bad suggestion costs tokens
+rather than coverage. The honest framing is that the heuristics are the control and the model
+is the improvement.
+
+**3. How do you know cite-or-drop actually runs?**
+
+That's a fair thing to check, because until this phase it didn't. I built `ground_candidates`
+in Phase 1 with a per-specialist visibility check and tested it thoroughly, and built
+retrieval in Phase 3, and nothing connected them — it was a well-tested function nothing
+called. Phase 4 wires it: the specialists node records what each specialist was actually
+shown, and synthesis passes that map straight to grounding. The end-to-end test that matters
+has the security specialist cite a chunk that genuinely exists and was genuinely retrieved —
+for the test-coverage specialist — and asserts it's dropped. Grounding also runs in code
+*before* the synthesis model is involved, so the model never sees a candidate that failed
+grounding and is never asked to check a citation.
+
+**4. What did the context-scoping measurement tell you?**
+
+34.86% fewer tokens, token-weighted, measured on 8 real commits from this repo's own history
+using the actual file contents at each commit — 292K tokens down to 190K. Median per-commit
+was 38.65%. The interesting part is that I expected the Python-only figure to be much higher,
+because this repo's history is documentation-heavy and markdown always takes the window
+fallback rather than AST scoping. It came back at 33.76% — slightly *lower*. My hypothesis was
+wrong, and I report both numbers because the one that contradicts me is the more informative
+one. What it doesn't prove: this is my repository, whose commits are large and doc-heavy in a
+way a typical feature PR isn't.
+
+**5. You asked for every log event to be documented. How is that not just a stale doc?**
+
+It's enforced by three tests. `test_every_event_is_documented` asserts every constant in
+`log_events.py` appears in `docs/Logging.md`, so an event can't be added without writing down
+the question it answers. `test_no_bare_event_strings_at_call_sites` walks the AST of every
+module and fails on a string literal passed to a logger call — that one caught nine bare
+strings I'd already written in earlier phases. And `test_every_traced_node_subclass_is_registered`
+catches a node class that exists but isn't in the graph registry. The instrumentation itself
+lives in `TracedNode.__call__`, which is `@final`, so a node author can't forget to instrument
+because instrumenting isn't something they do.
+
+### Most likely to be challenged
+
+> *"You've built a three-agent system and measured none of it. No finding precision, no
+> recall, no routing accuracy — just a token-reduction percentage and a green test suite run
+> entirely against a fake model. How do you know any of this works?"*
+
+I'd concede the premise almost entirely. **No LLM has produced a review in this repository.**
+Every graph test runs against `FakeChatModel`, there's no `GROQ_API_KEY`, and finding
+precision, recall and routing accuracy are all still `TODO: not yet measured` in the tracker.
+Anyone reading the repo today is looking at a system whose *quality* is unevidenced.
+
+What I'd argue is that the tests establish something different and still worth having:
+**behaviour under adversarial and degraded conditions**, which is where agent systems
+actually fail in production. A malformed specialist response drops one specialist and not the
+run. All three failing does fail the run, because an empty review and a clean review must not
+look alike. An unparseable routing response falls back to the heuristic floor. An injected
+instruction can't disable the security review. A citation to a chunk the specialist wasn't
+shown gets dropped. None of that needs a real model to test, and all of it would be much
+harder to retrofit once real calls made the suite slow and non-deterministic.
+
+The gap I'd name unprompted: I've tested that the *plumbing* is correct, not that the
+*findings* are good. Those are different claims and Phase 6 is where the second one gets
+evidence — against real human review comments on merged PRs, which is deliberately not a
+label set I control. Until then, the honest statement is that Quorum is a correctly-wired
+system of unknown review quality.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Context reduction (token-weighted) | **34.86%** | 8 real commits, 123 files, `eval/scoping/runner.py`, baseline committed | Generalisation — my commits are large and documentation-heavy. `estimate_tokens` is chars÷4, not a real tokenizer |
+| Median per-commit reduction | 38.65% | as above | — |
+| Python-files-only reduction | 33.76% | as above | Contradicted my expectation that it would be higher |
+| AST-resolved regions | 391 (vs 112 window fallbacks) | as above | Fallback rate is repo-specific |
+| Tests passing | 404 | `uv run pytest` | Nothing about review quality — no real model has run |
+| mypy `--strict` errors | 0 across 70 files | `uv run mypy` | — |
+| Finding precision / recall / routing accuracy | **TODO: not yet measured** | Phase 6 | — |
+
+**Gate-failure proofs run this phase:** 5 of 5, one after a correction. My first attempt to
+break the cite-or-drop wiring stayed green because the corpus is built incrementally; the real
+failure shape lives one node later, in synthesis. Second time a gate proof has taught me
+something a passing test could not.
+
+---
+
+## Phase 5 — HITL + audit
+
+### Five questions
+
+**1. Why does the checkpointer need to be durable? Isn't an in-memory pause simpler?**
+
+Much simpler, and it would fail in production the first time it mattered. The deployment
+target is a free-tier instance that sleeps. A review proposed at 14:00 and approved at 19:00
+has to resume in a *different process*, and an in-memory pause loses it — which surfaces to
+the user as "the review disappeared", the worst kind of bug because it's silent. The test
+builds two separate savers and two separate graph objects over the same SQLite file, so the
+second graph knows nothing except what was checkpointed. That's as close to a slept-and-woke
+instance as I can get without killing a process.
+
+**2. Why is the audit a table rather than a log line?**
+
+Because logs rotate and the answer to "why did it post that?" has to outlive log retention.
+They're genuinely different mechanisms with different readers and different retention: logs
+are for me debugging at 1am and are sampled; audit is for anyone asking what the agent did,
+and is never sampled and never deleted. Append-only is enforced twice — database triggers
+that raise on UPDATE and DELETE, and the adapter simply having no mutation method, so the
+application has no vocabulary for it. There's a test asserting that absence.
+
+**3. Your publish node re-reads the audit log instead of using the approvals already in
+state. Isn't that a redundant query?**
+
+It is, and it's deliberate. State travelled through a checkpoint and a resume to reach the
+publish node; the audit table is the record of what a human actually decided. The failing
+case is a forged approval present in state and absent from the audit log — audit-reading
+refuses it, state-trusting posts it. I'd add that I only *proved* this mattered because a
+gate proof failed: swapping the audit lookup for a state lookup left every existing publish
+test green, because they all called the node with no approvals in state, so both
+implementations refused for the same reason. The design decision I'd written a paragraph
+justifying wasn't load-bearing in any test until I wrote the one that distinguishes them.
+
+**4. What happens if nobody ever responds?**
+
+Nothing is posted, forever, and that's correct behaviour rather than a bug — it has a test.
+There's deliberately no timeout that auto-approves, because a timeout that approves is just
+approval with extra steps. Similarly there's no `approve_all` and no severity threshold below
+which the machine posts unasked. The one concession to usability is that a review with zero
+findings doesn't interrupt at all: stopping to ask a human about an empty list is the fastest
+way to make an approval gate feel like noise, and a gate people click through isn't a gate.
+
+**5. What did durable resumption force you to change?**
+
+The graph state. It held `dict[ChunkId, Chunk]`, and the checkpoint serialiser can't encode a
+frozen dataclass as a dict key — the first run of the resumption test died with
+`Dict key must a type serializable with OPT_NON_STR_KEYS`. State now carries plain strings and
+the value objects are rebuilt at the domain boundary in the synthesis node. The general lesson
+is that durable resumption constrains what state may contain, and I hadn't thought about that
+when I designed the state a phase earlier. It only surfaced because the test crossed a real
+process boundary; a test reusing one saver would never have serialised anything.
+
+### Most likely to be challenged
+
+> *"You've built an approval gate for a system that has never posted anything to a real
+> GitHub repository. The `CodeHostPort` write path has only ever been exercised against your
+> own fake. How do you know the gate guards anything real?"*
+
+Fair, and I'd split it into two claims that have very different evidence.
+
+The claim I can defend: **the gate is correctly wired, and it is the only path to a write.**
+`post_review_comment` requires an `Approval` as a *required argument*, so an unauthorised
+write isn't something you can forget to check — it's something you can't express. The client
+itself refuses write tools without authorisation (Phase 2), the publish node re-reads the
+audit log, and the audit table refuses mutation at the database level. Four independent
+mechanisms, each with a test proven to fail. And `approval`/`publish` are optional graph
+stages, so the MCP server in Phase 7 will get a graph with no write path at all rather than
+one it's trusted not to reach.
+
+The claim I can't defend yet: **that the real GitHub MCP server accepts what I send it.**
+Argument names and response shapes are fixtured from documentation, and no token exists in
+this environment. If `add_pull_request_review_comment` takes different parameters than I
+assume, the write path fails on first contact — loudly, at least, rather than silently
+posting something wrong.
+
+So the honest summary: the *authorisation* logic is real and tested; the *transport* is
+assumed. Those fail in opposite directions, and I'd rather have the untested half be the one
+that errors visibly.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Tests passing | 437 | `uv run pytest` | Nothing about review quality |
+| Independent controls on the write path | 4 | Approval-as-argument, client allowlist, publish guard, DB triggers — each with a failing proof | That the real GitHub API accepts our calls |
+| mypy `--strict` errors | 0 across 76 files | `uv run mypy` | — |
+| Findings posted to a real repository | **0** | No token exists | — |
+
+**Gate-failure proofs run this phase:** 3 of 3, one after a correction — swapping the audit
+lookup for a state lookup initially left everything green, which is what prompted the
+distinguishing test.
+
+---
+
+## Phase 7 — MCP server
+
+### Five questions
+
+**1. Why does your MCP server have no write path?**
+
+Because if `review_pull_request` could post to GitHub, any MCP client could bypass the human
+approval gate that the entire project exists to demonstrate — through a door I opened for
+convenience. So it's structural rather than a policy: the server holds three read-only
+callables, the graph behind it is built with `approval=None, publish=None` so it physically has
+no publish node, and a test parses the module's AST to assert it imports neither
+`GitHubMcpClient` nor `PublishNode`. It has nothing to post *with*, not merely nothing that
+posts.
+
+**2. Why publish `get_chunk`? It looks like an internal detail.**
+
+It's the tool I'd highlight, actually. Without it a `chunk_id` in a finding is an opaque token
+the caller has to trust — the citation is only verifiable by someone with my database. With
+it, any client can resolve a cited chunk back to its text, file and byte range. That turns
+"every finding is grounded" from something I assert into something the consumer can check. It's
+the difference between a claim and an auditable property, and it costs about fifteen lines.
+
+**3. You return `dropped` — the findings that failed grounding. Why expose failures?**
+
+My first instinct was to hide them, because a clean API returns findings rather than debris.
+But "the model tried to cite something it wasn't shown" is real information about that
+review's reliability, and a caller who never sees it can't distinguish a genuinely quiet
+review from a suppressed one. Same reasoning as returning `routing_reason` rather than only
+logging it: the caller deserves the rationale, not just the verdict.
+
+**4. How is publishing an MCP server different from consuming one?**
+
+Consuming is mostly defensive — an allowlist, a write guard, handling a server that changes
+under you. Publishing is interface design: once a tool schema is out, changing it breaks
+clients you can't see. So the schema is documented in `docs/MCP.md`, every tool has a
+description asserted by a test, and there's a test pinning the exact key set of the response
+payload so a field can't quietly disappear. I also test it the same way I tested the client —
+with a real MCP client over real stdio, which is the mirror of Phase 2 where a real client
+drove a fake GitHub server.
+
+**5. You did Phase 7 before Phase 6. Why?**
+
+Deliberately. Phase 6 needs merged pull requests carrying substantive human review comments,
+assembled from a rate-limited API, plus long local model runs — and its entire value is
+*measurement*. Started without enough budget it produces a harness and a TODO, or worse a
+number nobody actually measured, which is the specific failure I'm most determined to avoid.
+Phase 7 is self-contained and closes a Definition-of-Done item. Ordering is a convenience;
+getting a number wrong is not.
+
+### Most likely to be challenged
+
+> *"Your MCP server returns a review computed by a stubbed function in your tests, and its
+> `get_review` is an in-process dictionary. Is this actually a working server, or a schema
+> with a demo behind it?"*
+
+Both halves of that are fair and they land differently.
+
+The transport and the contract are real. A genuine MCP client completes a handshake, discovers
+four tools, calls them, and gets structured results back over stdio — and the graph that
+`review` wraps is the same one that produced real findings against Ollama in the Phase 4 smoke
+run. Stubbing the review function in the *transport* test is deliberate: it isolates the thing
+under test, and the review pipeline has its own tests.
+
+The persistence criticism is simply correct. `get_review` is an in-process dict, so it only
+finds reviews computed by the current process. Restart it and they're gone. That's the
+`ReviewCachePort` — defined in Phase 1, still unimplemented — and it's the same gap as the
+review cache generally, which means the cost controls in TechSpec §5 aren't enforced anywhere
+in code yet either. I'd rather state that plainly than describe it as "caching".
+
+So: the published interface is real and tested, the review behind it is real, and the memory
+between calls is not. Those are three separable claims and I'd keep them separate.
+
+### Numbers produced in this phase
+
+| Number | Value | How measured | What it does not prove |
+| --- | --- | --- | --- |
+| Tools published | 4, all read-only | `test_server_advertises_exactly_the_documented_tools` | — |
+| Write tools published | **0** | 4 independent tests incl. an AST import check | That the *web* path is safe — that's Phase 5's gate |
+| Tests passing | 462 | `uv run pytest` | Nothing about review quality |
+| mypy `--strict` errors | 0 across 79 files | `uv run mypy` | — |
+
+**Gate-failure proofs run this phase:** 3 of 3 — adding a write tool (3 red), flipping
+`posted_to_github` (1 red), removing repo validation (1 red).

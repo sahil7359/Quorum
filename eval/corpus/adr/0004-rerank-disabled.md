@@ -23,23 +23,26 @@ than deleted.
 Measured on 20 golden queries over 157 chunks from this repository's own `docs/` tree,
 `BAAI/bge-small-en-v1.5` + `Xenova/ms-marco-MiniLM-L-6-v2`:
 
-These are the numbers in the committed baseline, `eval/baselines/retrieval.json`
-(corpus sha recorded there; reproduce with `uv run python -m eval.retrieval.runner`):
+These are the numbers in the committed baseline, `eval/baselines/retrieval.json`, measured
+over 20 golden queries against the frozen corpus in `eval/corpus/` (157 chunks, 14 files).
+Reproduce with `uv run python -m eval.retrieval.runner`:
 
 | config | NDCG@5 | Recall@5 | Success@5 | ms/query |
 | --- | --- | --- | --- | --- |
-| dense only | 0.5768 | 0.5867 | 0.9000 | 8.91 |
-| BM25 only | 0.5507 | 0.6408 | 0.8500 | 0.58 |
-| **hybrid (RRF)** | **0.5825** | **0.6283** | **0.9500** | **9.55** |
-| hybrid + rerank | 0.5018 | 0.5575 | 0.8500 | 803.56 |
+| dense only | 0.5768 | 0.5867 | 0.9000 | 8.60 |
+| BM25 only | 0.5507 | 0.6408 | 0.8500 | 0.47 |
+| **hybrid (RRF)** | **0.5811** | **0.6283** | **0.9500** | **9.10** |
+| hybrid + rerank | 0.5018 | 0.5575 | 0.8500 | 812.10 |
 
-**Rerank delta: NDCG@5 −0.0807, Recall@5 −0.0708, at 84× the latency.**
+**Rerank delta: NDCG@5 −0.0793, Recall@5 −0.0708, at 89× the latency.**
 
-An earlier run of the same eval gave hybrid 0.5943/0.6533 and a delta of −0.0925/−0.0958.
-The difference is *not* noise and not a code change: the eval corpus is this repository's
-own `docs/` tree, and writing this very ADR added a document to it. That feedback loop is a
-real methodological wart, recorded in `learn/03` and mitigated by the corpus fingerprint the
-gate now checks. The conclusion is unaffected — reranking loses on every metric in both runs.
+A note on how these numbers moved while I was writing this ADR, because it is the more
+interesting finding. The eval originally read the *live* `docs/` tree — so writing this
+document added a file to the corpus and changed the result it was recording (hybrid NDCG@5
+went 0.5943 → 0.5825 → 0.5811 across three runs, with no code change at all). Two fixes:
+the report now carries a `corpus_sha` and the gate refuses to compare across different
+corpora, and the corpus itself is a **frozen snapshot** in `eval/corpus/`, refreshed only by
+an explicit `--snapshot`. The reranking conclusion held identically across every run.
 
 It lost on every quality metric *and* cost 772ms more per query. There is no trade-off to
 weigh here; on this corpus it is simply worse.
