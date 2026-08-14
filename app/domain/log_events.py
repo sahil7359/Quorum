@@ -65,6 +65,7 @@ CACHE_HIT: Final = "cache.hit"
 CACHE_MISS: Final = "cache.miss"
 BUDGET_RESERVED: Final = "budget.reserved"
 BUDGET_EXHAUSTED: Final = "budget.exhausted"
+RATE_LIMITED: Final = "rate_limit.exceeded"
 
 # --- approval and publish --------------------------------------------------
 APPROVAL_PROPOSED: Final = "approval.proposed"
@@ -102,6 +103,7 @@ ALL_EVENTS: Final[frozenset[str]] = frozenset(
         CACHE_MISS,
         BUDGET_RESERVED,
         BUDGET_EXHAUSTED,
+        RATE_LIMITED,
         APPROVAL_PROPOSED,
         APPROVAL_DECIDED,
         PUBLISH_POSTED,

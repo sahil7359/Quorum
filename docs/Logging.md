@@ -119,6 +119,7 @@ Prompts are logged at **DEBUG only** — they contain fenced diff content.
 | `cache.miss` | INFO | The other half of the same question. | `cache_key` |
 | `budget.reserved` | INFO | Tokens consumed against the daily cap, so quota exhaustion is visible *before* it bites. | `estimated`, `consumed`, `limit` |
 | `budget.exhausted` | WARN | The moment behaviour changes to serving cached results. Must never be silent — an honest banner in the UI depends on this having happened. | `consumed`, `limit` |
+| `rate_limit.exceeded` | WARN | Distinct from the token budget on purpose: this fires on request *volume* against `QUORUM_LIVE_REVIEWS_PER_DAY`, not spend. A cache hit never reaches this check. | `repo`, `pr_number` |
 
 ## Approval and publish
 

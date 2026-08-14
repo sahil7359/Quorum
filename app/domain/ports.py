@@ -187,12 +187,40 @@ class ReviewCachePort(Protocol):
 
     async def put(self, cache_key: str, review: Review) -> None: ...
 
+    async def get_latest(self, repo: RepoRef, pr_number: int) -> Review | None:
+        """The most recent cached review for this PR, regardless of which commit it was at.
+
+        why: promoted from infrastructure in Phase 8. The budget-exhaustion fallback in
+        docs/AppFlow.md §3 -- "serve the most recent cached review with an honest banner" --
+        cannot be built on ``get`` alone, because ``get`` needs the *current* head_sha and the
+        whole point of the fallback is that we may not want to spend the tokens to confirm it.
+        alt: keep the cache exact-key-only and drop the honest-banner fallback (simpler port,
+        breaks a documented, guardrail-adjacent behaviour)
+        """
+        ...
+
 
 @runtime_checkable
 class BudgetPort(Protocol):
     async def state(self) -> BudgetState: ...
 
     async def record(self, run_id: RunId, usage: TokenUsage) -> None: ...
+
+
+@runtime_checkable
+class RateLimiterPort(Protocol):
+    """The live-review cap, separate from the token budget on purpose.
+
+    why: docs/TechSpec.md lists ``QUORUM_LIVE_REVIEWS_PER_DAY`` as its own row, distinct from
+    the daily token budget -- a cheap PR (few files, one specialist) and an expensive one both
+    count as one live review against this cap, so it bounds *request volume* the way the token
+    budget bounds *spend*. A single global counter, not per-IP: docs/Security.md T5 treats
+    "someone hammers the live-review button" as a shared-resource problem, not a per-caller one.
+    """
+
+    async def try_acquire(self) -> bool:
+        """Atomically check-and-increment. ``True`` if this call is under today's cap."""
+        ...
 
 
 # ---------------------------------------------------------------------------
