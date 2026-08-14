@@ -159,6 +159,24 @@ class TestHappyPath:
         assert finding.citation.chunk_id == CHUNK_A.chunk_id
         assert finding.specialist is SpecialistKind.SECURITY
 
+    async def test_usage_accumulates_across_nodes_instead_of_the_last_writer_winning(self) -> None:
+        """Found live: ReviewState.usage had no reducer, so route's usage (written first) was
+        silently replaced by specialists' usage (written second) rather than both surviving --
+        every review's recorded cost was undercounted by exactly the routing call. Proven here
+        by asserting the route node's usage entry specifically is still present at the end,
+        not just that the list has *some* entries (which the bug would also produce)."""
+        model = FakeChatModel(
+            responses={"route": ['{"specialists": ["correctness", "security"], "reason": "x"}']}
+        )
+
+        result = await run_graph(
+            build(model=model, retriever=FakeRetriever(), logger=RecordingLogger())
+        )
+
+        nodes_billed = {u.node for u in result["usage"]}
+        assert "route" in nodes_billed
+        assert nodes_billed == {"route", "correctness", "security", "test_coverage"}
+
     async def test_the_routing_decision_is_logged_with_its_reason(self) -> None:
         """The single most important log line in the system."""
         model = FakeChatModel(

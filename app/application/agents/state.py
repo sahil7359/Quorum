@@ -8,7 +8,8 @@ LangGraph applies it. Nodes never mutate the state they were handed.
 
 from __future__ import annotations
 
-from typing import TypedDict
+import operator
+from typing import Annotated, TypedDict
 
 from app.domain.entities import (
     Approval,
@@ -71,5 +72,15 @@ class ReviewState(TypedDict, total=False):
     status: RunStatus
 
     # -- accounting ----------------------------------------------------------
-    usage: list[TokenUsage]
+    # why: found live -- with a plain `list[TokenUsage]`, LangGraph has no reducer for this
+    #      key, so each node's returned usage list *replaces* the previous one rather than
+    #      concatenating. route, specialists, (and once approval/publish return usage) each
+    #      write to the same channel, and only the last writer's list survived to the final
+    #      state. Every review's recorded cost was undercounting by exactly the routing
+    #      call -- the one call that runs before any specialist and is silently overwritten
+    #      by the first specialist's usage. operator.add on a list is concatenation, which is
+    #      exactly "append this node's usage entries to what came before".
+    #      alt: have each node re-read and re-append to state["usage"] itself (every node
+    #      would need the same boilerplate, and a node forgetting it reintroduces the bug)
+    usage: Annotated[list[TokenUsage], operator.add]
     error: str
