@@ -1,87 +1,136 @@
+<div align="center">
+
 # Quorum
 
-> **Status: in development.** Every number below marked `TODO` has not been measured yet.
-> Nothing here is a placeholder for a number I expect to get — it is a slot that stays
-> empty until a reproducible run fills it.
+**A supervisor agent that reviews pull requests, grounds every finding in the target
+repository's own documentation, and won't post anything without a human approving it first.**
 
-A supervisor agent that dispatches specialist reviewer agents across a pull request,
-grounds every finding in the repository's own documentation via citation-backed retrieval,
-and requires human approval before anything is posted back to GitHub.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1C3C3C)
+![Postgres](https://img.shields.io/badge/Postgres-pgvector-4169E1?logo=postgresql&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-client%20%2B%20server-6E56CF)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
-**Live demo:** `TODO: not yet deployed`
+**Live demo:** not yet deployed — see [`learn/LLD.md`](learn/LLD.md) for what's built and
+tested today versus what's left.
+
+</div>
 
 ---
+
+## The problem, and why grounding is the whole point
+
+Most "AI code review" tools read a diff and write plausible-sounding comments you have to take
+on faith. Quorum's bet is narrower: a finding is only as good as its citation, and citations
+are checkable. A specialist proposes a finding with an untyped, optional `chunk_id: str | None`
+— nothing trusts it. Exactly one function turns that into a real `Finding`, and it fails to,
+routinely, in four distinct ways: no citation given, a citation that doesn't parse, a citation
+for a chunk that was never retrieved, or — the subtle one — a citation for a chunk that's
+completely real but wasn't shown to *that specialist*. A finding that survives all four checks
+is grounded. One that doesn't is dropped before a human ever sees it.
 
 ## What it does
 
 1. Reads a pull request through the **official GitHub MCP server**.
-2. A **supervisor** decides which specialists the diff warrants — and logs why.
-3. Three specialists review it: **correctness**, **security**, **test-coverage**. Each
-   grounds its findings in retrieved chunks of the target repository's own documentation.
+2. A **supervisor** decides which specialists the diff warrants — deterministic heuristics
+   compute a floor, an LLM may only extend it, and the decision is logged with its reason.
+3. Three specialists review it — **correctness**, **security**, **test-coverage** — each
+   grounding its findings in retrieved chunks of the target repository's own documentation.
 4. Synthesis deduplicates and **drops any finding without a resolvable citation**.
-5. The graph **stops** and waits for a human to approve, edit, or reject each finding.
-6. Only then does anything reach GitHub — and an append-only audit row records it.
-7. The whole capability is **published as an MCP server**, so any MCP client can call it.
-
-## Why it exists
-
-It demonstrates three things my previous project ([DataChat](https://github.com/)) does not:
-**MCP consumed *and* published**, **multi-agent orchestration**, and **document RAG with
-chunk-level citations**. Security is a deliberate *baseline* here, not the showcase —
-DataChat already carries that story.
+5. The graph **stops** and waits for a human to approve, edit, or reject each finding,
+   durably — the process can die between the stop and the resume and it still works.
+6. Only then does anything reach GitHub, and an append-only audit row records it.
+7. The same capability is published as an **MCP server**, so any MCP client can call it —
+   read-only, structurally: the object holding the write path is never even constructed.
 
 ## Architecture
 
-`TODO: diagram — Phase 13`
+```
+GitHub PR ──► GitHub MCP Client ──► ingest → route → specialists → synthesise ──► cite-or-drop
+                                       │         │         │              │
+                                  diff cap   heuristic  hybrid retrieval  dedupe + rank
+                                  + AST      floor +    (dense + BM25,   (no LLM call —
+                                  scoping    LLM extend  RRF fusion)      comparison sort
+                                                                          already orders it)
+                                                                              │
+                                                            ┌─────────────────▼──────────────┐
+                                                            │  Approval gate (durable          │
+                                                            │  interrupt, survives restarts)   │
+                                                            │  → Publish (only write path,     │
+                                                            │  re-checks audit log at write     │
+                                                            │  time, not just at routing time)  │
+                                                            └───────────────────────────────────┘
 
-Four layers with dependencies pointing inward, enforced by `import-linter` **and** an AST
-fitness test, not by convention. See [`docs/adr/0001-clean-architecture.md`](docs/adr/0001-clean-architecture.md).
+Serving: FastAPI + SSE   ·   idempotency-key coalescing   ·   review cache (zero-token replay)
+         daily token budget (summed from fact, not decremented)   ·   live-review rate limit
+```
+
+Full diagrams, request lifecycle, and every table's schema: [`learn/HLD.md`](learn/HLD.md)
+(architecture) and [`learn/LLD.md`](learn/LLD.md) (class-level design, algorithms, sequence
+flows).
+
+Four layers, dependencies pointing inward, enforced by `import-linter` **and** an AST fitness
+test — not by convention. `domain` has zero framework imports; a fake satisfying its `Protocol`
+ports is checked structurally against the real contract, so it can't silently drift.
 
 ```
 app/
   domain/          entities, value objects, Protocol ports — stdlib imports only
-  application/     agents (supervisor + specialists), services, use cases
-  infrastructure/  mcp/, retrieval/, llm/, persistence/, observability/
-  interface/       api/, schemas/, container.py (the one composition root)
+  application/     the LangGraph pipeline: routing heuristics, specialist prompts, grounding
+  infrastructure/  GitHub MCP client + server, LLM adapters (Ollama/Groq), Postgres/SQLite,
+                   the hybrid retrieval stack
+  interface/       the composition root — FastAPI app, ReviewService, wiring
 ```
 
 ## Measured numbers
 
-| Number | Value | How measured | What it does not prove |
-| --- | --- | --- | --- |
-| NDCG@5 (rerank on vs off) | `TODO` | Phase 3 retrieval eval | — |
-| Finding precision | `TODO` | Phase 6, vs human review comments on merged PRs | — |
-| Finding recall | `TODO` | Phase 6 | Measured against an imperfect ceiling — human reviewers miss things too |
-| Specialist routing accuracy | `TODO` | Phase 6 | — |
-| Cost per review | `TODO` | Trace aggregation | — |
-| Monthly cost | `TODO` | Provider dashboards | — |
+Every number here is reproducible from a committed baseline and a gate that fails if it
+regresses — see [`LEARN.md`](LEARN.md) for the story behind each one.
+
+| Number | Value | How measured |
+| --- | --- | --- |
+| Retrieval NDCG@5 (hybrid dense+BM25) | 0.526 | `eval/retrieval/`, committed baseline, CI-gated |
+| Reranking delta | **−0.079 NDCG@5 at 63–91× latency → cut** | Same eval; own corpus and labels, so the *delta* is trusted more than the absolute score |
+| AST context-scoping token reduction | **34.86%** | Measured across real commits from this repo's own history |
+| Trajectory-eval finding recall | **0%**, on a 10-PR real-world golden set | The model omits citations on real-world-sized diffs more often than a single hand-written smoke test suggested — written up honestly, not hidden |
+| Trajectory-eval routing recall | 100% (trivially — correctness is unconditional) | Same eval |
+| Citation rate | 1.00 by construction | A `Finding` cannot exist without a citation; the type system guarantees it |
+
+**The finding-recall number is the one I'd lead with in an interview, not bury.** It's the
+result of measuring honestly instead of shipping a plausible-looking metric nobody checked —
+see [`learn/interview-prep.md`](learn/interview-prep.md) for the full "what does this actually
+mean" conversation, including what I'd do differently.
 
 ## Known limitations
 
-Filled in properly at Phase 13. Three that are true by design and will not change:
-
-- **Quorum cannot report a defect the repository's documentation does not speak to.**
-  Cite-or-drop means the failure mode of a grounded reviewer is *silence*. That is the
-  intended failure mode, and it means recall will never be high.
-- **A citation proves grounding, not aptness.** A finding can cite a real chunk that does
-  not actually support it. Retrieval eval bounds this; nothing eliminates it.
-- **Live reviews are rate-limited to a handful per day** by the free-tier token budget.
-  The gallery is cached by commit SHA and always available.
+- **Quorum cannot report a defect the repository's documentation doesn't speak to.** Cite-or-drop
+  means the failure mode of a grounded reviewer is *silence*, on purpose — that's why finding
+  recall will never be high, and why the number above is reported plainly rather than chased.
+- **A citation proves grounding, not aptness.** A finding can cite a real, visible chunk that
+  doesn't actually support its claim. The retrieval eval bounds how often the wrong chunk comes
+  back; nothing eliminates a right chunk being cited for the wrong reason.
+- **Single-operator trust model.** One shared token budget, one rate limit, no per-tenant
+  isolation. Extending to multi-tenant is additive to the schema, not a rewrite — see
+  [`learn/interview-prep.md`](learn/interview-prep.md) for exactly what that would take.
+- **Not load-tested.** The design supports horizontal scaling (stateless orchestrator, durable
+  checkpointing, ports-and-adapters persistence) but I haven't proven it under real concurrency.
 
 ## Documentation
 
 | Document | What it answers |
 | --- | --- |
+| [`learn/HLD.md`](learn/HLD.md) | System architecture, request lifecycle, scaling posture |
+| [`learn/LLD.md`](learn/LLD.md) | Class-level design, algorithms, schemas, sequence flows |
+| [`learn/interview-prep.md`](learn/interview-prep.md) | System-design Q&A: cost control, scaling, honest gaps |
+| [`LEARN.md`](LEARN.md) | Change log with reasoning — what changed, why, what I'd reconsider |
 | [PRD](docs/PRD.md) | What problem, for whom, what is out of scope |
-| [Design](docs/Design.md) | Architecture, the agent graph, why a supervisor |
+| [Design](docs/Design.md) | The agent graph, why a supervisor, the log/trace/audit split |
 | [TechSpec](docs/TechSpec.md) | Stack and why, ports, MCP contracts, model routing |
-| [AppFlow](docs/AppFlow.md) | One review end to end |
+| [AppFlow](docs/AppFlow.md) | One review end to end, with a failure-path table |
 | [Schema](docs/Schema.md) | Data model and chunk identity |
-| [Guardrails](docs/Guardrails.md) | Trust boundaries and 15 controls mapped to tests |
-| [Security](docs/Security.md) | Threat model, OWASP mapping |
-| [Rules](docs/Rules.md) | Engineering rules and their enforcement |
-| [Tracker](docs/Tracker.md) | Current status |
-| [`learn/`](learn/) | My build notes — the reasoning, phase by phase |
+| [Guardrails](docs/Guardrails.md) | Trust boundaries and every control mapped to a test |
+| [Security](docs/Security.md) | Threat model, OWASP LLM + Agentic Top 10 mapping |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 
 ## Development
@@ -94,6 +143,9 @@ uv run lint-imports
 uv run ruff check .
 ```
 
-## Licence
+Needs Docker (Postgres + pgvector for integration tests) and, for a live model, either a local
+Ollama instance or a Groq API key — see [`.env.example`](.env.example).
 
-`TODO`
+## License
+
+MIT — see [LICENSE](LICENSE).

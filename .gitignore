@@ -2,6 +2,10 @@
 .claude/
 .claude-trace/
 
+# Local build notes — personal working diary, never published.
+# LEARN.md at the repo root is the curated, public version.
+learn/
+
 # Python
 __pycache__/
 *.py[cod]
