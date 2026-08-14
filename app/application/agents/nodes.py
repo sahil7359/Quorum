@@ -17,7 +17,6 @@ from abc import ABC, abstractmethod
 from typing import ClassVar, final
 
 from app.application.agents import routing, specialists
-from app.application.agents.prompts import fence
 from app.application.agents.scoping import scope_diff
 from app.application.agents.state import ReviewState
 from app.domain import log_events
@@ -25,7 +24,6 @@ from app.domain.entities import CandidateFinding, Chunk, Diff, RepoRef
 from app.domain.errors import AllSpecialistsFailedError, CodeHostError
 from app.domain.grounding import deduplicate, ground_candidates
 from app.domain.ports import ChatModelPort, CodeHostPort, LoggerPort, RetrieverPort, TracerPort
-from app.domain.text import estimate_tokens
 from app.domain.values import ChunkId, RunStatus, SpecialistKind, TokenUsage
 
 
@@ -351,13 +349,3 @@ class SynthesiseNode(TracedNode):
             "dropped": [d.reason for d in result.dropped],
             "status": RunStatus.PROPOSED,
         }
-
-
-def excerpt_for_log(text: str) -> str:
-    """Diff content never reaches a log line at INFO -- only its size does."""
-    return f"<{estimate_tokens(text)} est. tokens, {len(text)} chars>"
-
-
-def fenced(label: str, content: str) -> str:
-    """Re-exported so nodes do not import prompts directly in tests."""
-    return fence(label, content)

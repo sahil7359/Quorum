@@ -7,6 +7,26 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 9 — Security baseline: a guardrail that was only a docstring
+
+Went through every control in `docs/Guardrails.md` and checked the test name listed against
+it actually exists — most did, under slightly different names than the doc claimed (doc drift,
+not missing coverage; fixed the doc). One was a real gap.
+
+`nodes.py` had a function, `excerpt_for_log(text)`, whose entire docstring was the claim
+"diff content never reaches a log line at INFO — only its size does." Nothing called it.
+Nothing tested it. It was a security guarantee that existed as a comment, verified by nobody,
+sitting next to code that happened — by omission, not by anything enforced — to never actually
+log the diff. Deleted the dead function and wrote a real test: run the actual graph on a diff
+carrying a distinctive marker, then scan every field of every captured log line, at every
+level, for that marker. Proved it can fail the honest way — temporarily added a line that
+logged file content, watched both new tests fail with the leaked value quoted in the assertion
+error, then removed the line and watched them pass again.
+
+The lesson isn't "there was a bug." It's that a docstring asserting a security property, with
+no caller and no test, is indistinguishable from a true one until somebody checks — and the
+codebase had been treating it as verified for multiple phases.
+
 ## Phase 8 — Serving, and a token-accounting bug that predates it
 
 Building the FastAPI serving layer meant reading `result["usage"]` end to end for the first
