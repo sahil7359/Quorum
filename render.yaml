@@ -1,15 +1,14 @@
 # Render Blueprint. https://render.com/docs/blueprint-spec
 #
-# Backend only -- there is no frontend to deploy yet (see LEARN.md's Phase 13 entry). One web
-# service running this repo's own Dockerfile; no Render-managed Postgres, because Neon is the
-# intended production database (HANDOFF.md's credential list) -- Neon supports pgvector on
-# every tier including free, which is why it was chosen over Render's own Postgres offering.
+# Two services: the FastAPI backend (this repo's root Dockerfile) and the Next.js frontend
+# (frontend/Dockerfile). No Render-managed Postgres, because Neon is the intended production
+# database (HANDOFF.md's credential list) -- Neon supports pgvector on every tier including
+# free, which is why it was chosen over Render's own Postgres offering.
 #
 # QUORUM_LLM_PROVIDER=groq, not ollama: Ollama is a local daemon this repo has only ever run
 # against localhost. A hosted web service has no GPU and nothing to point QUORUM_OLLAMA_BASE_URL
-# at, so production has to run against Groq -- the one path in this codebase that has never
-# been exercised against a real API key (see HANDOFF.md's credential-blocked items;
-# QUORUM_GROQ_API_KEY is `sync: false` below specifically because it doesn't exist yet).
+# at, so production runs against Groq -- verified live against the deployed service (see
+# LEARN.md's "live deploy verification" entry).
 services:
   - type: web
     name: quorum
@@ -40,3 +39,21 @@ services:
         value: json
       - key: QUORUM_LOG_LEVEL
         value: INFO
+
+  - type: web
+    name: quorum-web
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    # why a build-time arg, not a runtime env var: NEXT_PUBLIC_ values are inlined into the
+    # client JS bundle by `next build` (see frontend/Dockerfile), so the backend URL has to be
+    # known when the image is built, not when the container starts. `fromService` resolves the
+    # backend's own Render URL so this isn't a hardcoded hostname that breaks if the backend is
+    # renamed or redeployed to a new address.
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE
+        fromService:
+          type: web
+          name: quorum
+          property: host

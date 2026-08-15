@@ -22,6 +22,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -51,6 +52,18 @@ def create_app(
     that passes this.
     """
     app = FastAPI(title="Quorum", version="0.1.0", lifespan=lifespan)
+    # why wide open, not an allowlisted origin: this API has no cookies, no session, no
+    # credential of any kind attached to a request -- every response is either public GitHub
+    # PR data or a review this service already agreed to produce for anyone under the rate
+    # limit. `allow_origins=["*"]` combined with credentialed requests would be a real hole;
+    # combined with `allow_credentials` left at its default `False`, there is nothing here
+    # for a third-party origin to steal by reading a response it wasn't supposed to see.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "Idempotency-Key"],
+    )
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

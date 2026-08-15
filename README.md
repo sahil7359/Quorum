@@ -147,6 +147,15 @@ uv run ruff check .
 Needs Docker (Postgres + pgvector for integration tests) and, for a live model, either a local
 Ollama instance or a Groq API key — see [`.env.example`](.env.example).
 
+The web frontend ([`frontend/`](frontend/), a thin Next.js reader for the review API) has its
+own setup — see [`frontend/README.md`](frontend/README.md):
+
+```bash
+cd frontend
+pnpm install
+pnpm dev        # http://localhost:3000, expects the backend on :8000
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

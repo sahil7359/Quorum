@@ -1,8 +1,11 @@
 # Deploy
 
-Backend only. There is no frontend yet (`frontend/` is empty), so this covers the FastAPI
-service (`app.interface.composition:app`) on Render. See [`render.yaml`](../render.yaml) for
-the blueprint this document explains.
+Two Render services: the FastAPI backend (`app.interface.composition:app`) and the Next.js
+frontend (`frontend/`, a thin reader for the review API). See [`render.yaml`](../render.yaml)
+for the blueprint this document explains, and [`frontend/README.md`](../frontend/README.md) for
+the frontend's own shape. Most of this document is about the backend, which carries all the
+real deployment constraints; the frontend is a static-ish Next build with one build-time
+variable (`NEXT_PUBLIC_API_BASE`, auto-wired from the backend's service host in the blueprint).
 
 ## What's already verified
 

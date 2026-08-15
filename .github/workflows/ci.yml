@@ -133,6 +133,37 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  frontend:
+    name: frontend · types · lint · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: lint
+        run: pnpm lint
+
+      - name: build
+        run: pnpm build
+
   trajectory-eval:
     name: trajectory eval gate (manual)
     # why: workflow_dispatch only, not on every push. This gate needs a real LLM -- Ollama,

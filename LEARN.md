@@ -7,6 +7,46 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 15 — the frontend, and a CRLF bug no unit test could have caught
+
+The API had been the whole product through Phase 14 -- `frontend/` was an empty directory. This
+is a thin Next.js reader for it: POST `{repo, pr_number}`, parse the SSE stream, render the
+review as it forms. Stack deliberately matches the sibling DataChat project exactly (Next 15,
+React 19, Tailwind 4, pnpm, ESLint 9 flat config with typescript-eslint's type-checked rules) --
+same reasoning as matching its `.gitignore`/README conventions earlier: one set of habits across
+both repos rather than two.
+
+**The bug that only a real browser could find.** The SSE parser split the stream on `\n\n` and
+matched lines with `startsWith("event: ")`. Every unit-style assumption about that was correct,
+and it was still wrong: `sse-starlette` frames events with **CRLF** -- `\r\n` between lines,
+`\r\n\r\n` between events -- not the `\n` the SSE spec also permits. Splitting on `\n\n` against
+a `\r\n\r\n` stream never finds a boundary, so every event sat unparsed in the buffer until the
+stream closed, at which point the loop just broke. The symptom was maximally confusing: the
+backend log showed the review running and completing perfectly, the network tab showed a 200,
+and the UI sat on "Reviewing…" forever. No backend test could have caught this -- the backend
+was correct. No frontend unit test I'd have thought to write would have caught it either,
+because I'd have generated the fixture SSE text with `\n`, reproducing my own wrong assumption.
+It took `fetch`-ing the real endpoint from the browser console and printing the raw bytes --
+`"event: review.completed\r\ndata: {...}\r\n\r\n"` -- to see the `\r` characters that made the
+whole thing inert. Fixed by normalising `\r\n` to `\n` once as each chunk arrives, so the
+boundary and line logic only has to know one newline convention.
+
+The general lesson, and the reason the project's own rule is "UI changes must be exercised in a
+real browser, not just type-checked": a frontend that compiles, lints clean under strict rules,
+passes every type check, and renders its initial state perfectly can still be completely broken
+in a way that is invisible until a real byte stream from a real server hits it. Type systems
+verify the shape of data you *assume*; they cannot verify the shape of data you *receive*.
+
+Everything else was uneventful precisely because it was checked the same way: clicked through a
+real review end to end against the live backend, watched all five steps fill in with real
+detail (`495 chunks ready`, `17 files changed, context scoped down 97%`, the three specialists,
+`13 candidate finding(s) proposed`, `5 survived citation checks`), and confirmed the findings
+rendered with severities, citations, and a working reset. Also added CORS to the backend
+(`allow_origins=["*"]`, credentials left off -- the API has no cookie or session for a
+cross-origin read to steal, so the wildcard is safe here in a way it would not be for an
+authenticated API) and a second Render service in `render.yaml` wiring the frontend's API base
+from the backend's own service host.
+
 ## Phase 14 — the ingestion pipeline earlier phases left deferred, and what it changed
 
 The deployed service could run a real review from the moment Phase 13 shipped, but its chunk
