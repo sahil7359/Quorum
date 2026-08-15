@@ -7,10 +7,11 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
-## Phase 11 — CI: the container never built, and the test job would have hung
+## Phase 11 — CI: the container never built, the eval gate never agreed with itself, and the
+test job actually hung
 
-Two real failures caught by actually running things, not by writing the workflow file and
-assuming it worked.
+Four real failures, each caught by actually watching a run go green, not by writing the
+workflow file and assuming it would.
 
 **The Dockerfile didn't build.** `hatchling` (the build backend) reads `readme = "README.md"`
 from `pyproject.toml` and refuses to produce package metadata without the file present — and
@@ -28,6 +29,54 @@ pytest` in CI, with no service container defined, would have sat there until eve
 tests timed out trying to reach `localhost:5433` and found nothing listening. Added a Postgres
 service container to the `tests` job, matching the exact user/password/db/port this project's
 own tests already default to locally.
+
+**The retrieval gate's fingerprint didn't survive a platform change, twice.** The eval gate
+hashes the corpus so a stale baseline fails loudly instead of silently comparing against the
+wrong snapshot. Developing on Windows and running CI on Linux broke that hash two different
+ways. First: the fingerprint hashed `Path.read_bytes()` while the actual corpus loader used
+`Path.read_text()` (universal newline translation) — identical git-stored content produced
+different byte sequences depending on which line-ending convention checked it out. Fixed by
+hashing the normalised text instead. That fix didn't fully close it: `pathlib.Path` comparison
+is case-insensitive on Windows (matching NTFS) and case-sensitive on Linux, so `adr/0001-....md`
+sorts before `AppFlow.md` on Windows and after it on Linux — same files, same bytes, different
+incremental-hash order. Fixed by sorting on the relative path *string* rather than `Path`
+objects, since `str.__lt__` is case-sensitive everywhere. Confirmed the fix rather than trusting
+it: the local fingerprint after the change matched, byte for byte, what CI had already been
+computing independently on the same commit.
+
+**The test job hung, for real, in CI only.** After the fingerprint fix finally went green, the
+very next run's test job sat "in progress" for over fifty minutes against a full local suite
+that runs in under a minute. No job in this workflow had `timeout-minutes` set, so it would have
+run for up to six hours by default before anyone noticed. First fix wasn't the bug itself — it
+was adding `timeout-minutes` to every job (a legitimate hardening on its own: a hang should be a
+fast, loud failure, not something that silently burns most of a day) and `pytest-timeout` with
+the *thread* method, so a genuine deadlock reports which test it caught mid-hang instead of
+leaving a job stuck with no diagnostic short of guessing from where GitHub's log output happened
+to last flush.
+
+That instrumentation worked on the very next push: a thread dump showed the main thread stuck in
+asyncio's `_cancel_all_tasks → gather() → run_forever`, waiting on a task that would never
+finish. Counting completed tests against local collection order pointed at
+`test_missing_read_tool_refuses_to_connect` in `test_github_mcp_client.py` — the one test whose
+entire point is making `GitHubMcpClient.__aenter__` fail. The real bug: `__aenter__` called its
+advertised-tools check *after* its own try/except block, not inside it. When that check raises
+for a missing tool, the exception escapes the block that closes `self._stack`, and because
+`__aenter__` raised, Python's `async with` protocol never calls `__aexit__` either — it only
+runs on a successful enter. The child process and its stdio pipes leaked on every single
+missing-tool refusal, full stop. Linux's event-loop teardown then blocked forever cancelling a
+task still trying to read from a pipe nothing was ever going to close; Windows, across dozens of
+local runs this same session, never surfaced it — the same leak apparently doesn't block that
+OS's teardown the same way. Reproduced directly rather than trusting the CI trace alone: calling
+`__aenter__()` by hand against the unfixed code hung locally within seconds, no CI round-trip
+needed once the actual code path was in view. Moved the check inside the try block, and the
+regression test asserts the client's internal state is actually torn down after a refusal — run
+against the reverted code first and watched it hang for the right reason before restoring the
+fix, the same discipline as every other gate-proof here.
+
+The lesson that generalises: a Postgres integration suite that only ever runs against a
+developer's own long-lived local container is *exactly* the kind of test surface that looks
+covered and isn't. Linux CI, with a fresh container and a fresh event loop every run, found a
+resource leak that months of local runs on this machine never once tripped over.
 
 **The trajectory gate is deliberately not on every push.** It needs a real LLM to produce a
 number that means anything, and the only real option in a stock GitHub Actions runner is Ollama
