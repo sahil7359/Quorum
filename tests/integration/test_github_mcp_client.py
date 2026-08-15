@@ -173,6 +173,20 @@ class TestAllowlist:
             async with client(mode="missing"):
                 pass
 
+    async def test_missing_read_tool_still_tears_down_the_subprocess(self) -> None:
+        """``__aenter__`` raising means ``__aexit__`` never runs -- the `async with` protocol
+        only calls it on a successful enter. Cleanup has to happen inside ``__aenter__``
+        itself on this failure path, or the child process and its stdio pipes leak for the
+        rest of the run. This is a regression test for a real hang: the leaked pipe's read
+        task blocked the next event loop's shutdown forever in CI (Linux), invisible on
+        Windows where the same leak doesn't happen to block cleanup the same way.
+        """
+        c = client(mode="missing")
+        with pytest.raises(CodeHostError):
+            await c.__aenter__()
+        assert c._stack is None
+        assert c._session is None
+
 
 class TestWriteGuard:
     async def test_approved_finding_is_posted(self) -> None:

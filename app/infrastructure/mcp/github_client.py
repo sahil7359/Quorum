@@ -100,12 +100,21 @@ class GitHubMcpClient:
             session = await self._stack.enter_async_context(ClientSession(read, write))
             init = await session.initialize()
             self._session = session
+            await self._inspect_advertised_tools(session, server_name=init.server_info.name)
         except Exception as exc:
+            # why: __aenter__ raising means __aexit__ is never called (the `async with`
+            #      protocol only invokes it on a successful enter), so cleanup has to happen
+            #      here or the child process and its stdio pipes leak. A leaked subprocess
+            #      isn't just a resource left behind: the next event-loop shutdown that tries
+            #      to cancel its still-running read task blocks forever waiting for a process
+            #      that nothing ever asked to exit.
             await self._stack.aclose()
             self._stack = None
+            self._session = None
+            if isinstance(exc, CodeHostError):
+                raise
             raise CodeHostError(f"could not start MCP server {self._command!r}: {exc}") from exc
 
-        await self._inspect_advertised_tools(session, server_name=init.server_info.name)
         return self
 
     async def __aexit__(
