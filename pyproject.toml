@@ -30,6 +30,7 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
+    "pytest-timeout>=2.3",
     "mypy>=1.13",
     "ruff>=0.7",
     "import-linter>=2.1",
@@ -106,7 +107,10 @@ ignore_missing_imports = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --strict-markers --strict-config"
+# why: timeout-method=thread rather than the signal default -- a hang stuck in a C extension
+#      or blocking syscall won't respond to a signal, but a watcher thread can still fire and
+#      report which test it caught mid-hang instead of the whole job silently running for hours.
+addopts = "-q --strict-markers --strict-config --timeout=60 --timeout-method=thread"
 asyncio_mode = "auto"
 markers = [
     "integration: requires an external service (Postgres, Ollama, network)",
