@@ -143,6 +143,18 @@ class TestReads:
 
         assert [f.file_path for f in files] == ["app/auth/login.py", "README.md"]
 
+    async def test_list_markdown_files(self) -> None:
+        async with client() as c:
+            paths = await c.list_markdown_files(REPO)
+
+        assert paths == ("README.md", "docs/index.md", "docs/faq.md")
+
+    async def test_list_markdown_files_caps_at_the_given_limit(self) -> None:
+        async with client() as c:
+            paths = await c.list_markdown_files(REPO, limit=2)
+
+        assert paths == ("README.md", "docs/index.md")
+
 
 class TestAllowlist:
     async def test_non_allowlisted_tool_is_refused(self) -> None:

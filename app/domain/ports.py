@@ -113,6 +113,22 @@ class CodeHostPort(Protocol):
     ) -> str: ...
 
 
+@runtime_checkable
+class DocIngestionPort(Protocol):
+    """Discover and fetch a repo's own documentation, for indexing rather than for review.
+
+    Separate from ``CodeHostPort`` on purpose: ``get_file`` is duplicated across both rather
+    than one inheriting the other, because ingestion and review are different callers with
+    different failure tolerances -- a repo whose docs can't be listed should not be able to
+    fail a *review*, and folding this into ``CodeHostPort`` would make every review-path caller
+    depend on a capability only ingestion needs.
+    """
+
+    async def list_markdown_files(self, repo: RepoRef, *, limit: int = 60) -> Sequence[str]: ...
+
+    async def get_file(self, repo: RepoRef, path: str, *, ref: str) -> str: ...
+
+
 # ---------------------------------------------------------------------------
 # Retrieval
 # ---------------------------------------------------------------------------

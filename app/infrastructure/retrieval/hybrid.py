@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from app.domain import log_events
 from app.domain.entities import Chunk, RepoRef, ScoredChunk
-from app.domain.ports import EmbedderPort, LoggerPort
+from app.domain.ports import ChunkStorePort, EmbedderPort, LoggerPort
 from app.domain.values import ChunkId
 from app.infrastructure.retrieval.fusion import reciprocal_rank_fusion
 from app.infrastructure.retrieval.sparse import BM25Index
@@ -79,7 +79,7 @@ class HybridRetriever:
     def __init__(
         self,
         *,
-        store: object,
+        store: ChunkStorePort,
         embedder: EmbedderPort,
         logger: LoggerPort,
         reranker: object | None = None,
@@ -97,7 +97,7 @@ class HybridRetriever:
     async def _bm25_for(self, repo: RepoRef, commit_sha: str) -> tuple[BM25Index, dict[str, Chunk]]:
         key = (str(repo), commit_sha)
         if key not in self._bm25_cache:
-            chunks = await self._store.all_for_repo(repo, commit_sha)  # type: ignore[attr-defined]
+            chunks = await self._store.all_for_repo(repo, commit_sha)
             by_id = {str(c.chunk_id): c for c in chunks}
             index = BM25Index.build([(str(c.chunk_id), c.content) for c in chunks])
             self._bm25_cache[key] = (index, by_id)
@@ -112,7 +112,7 @@ class HybridRetriever:
         top_k: int,
     ) -> Sequence[ScoredChunk]:
         embedding = (await self._embedder.embed([query]))[0]
-        dense = await self._store.search_dense(  # type: ignore[attr-defined]
+        dense = await self._store.search_dense(
             embedding, repo=repo, commit_sha=commit_sha, limit=self._candidates
         )
 

@@ -7,6 +7,72 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 14 — the ingestion pipeline earlier phases left deferred, and what it changed
+
+The deployed service could run a real review from the moment Phase 13 shipped, but its chunk
+store started empty for every repo, every time -- there was no answer to "when does a repo's
+documentation actually get indexed," left open on purpose rather than guessed at under
+deploy-prep pressure. This is that answer. (Not HANDOFF.md's numbered R7, which is specifically
+about *picking* the six gallery repos -- a different, still-open decision. Worth naming the
+mistake: an earlier session summary conflated the two, and that conflation would have kept
+propagating into every doc this phase touched if it hadn't been checked against the source.)
+
+**Discovery, not a hand-curated list.** Phase 12's demo script picked five files per repo by
+hand. A generic pipeline needs to find a repo's docs without a human choosing them first.
+Tried `get_file_contents` pointed at a directory first -- confirmed live, against
+`psf/black`'s `docs/`, that it returns a normal directory listing (GitHub's contents API
+behaviour), which would work but costs one API call per directory level, unbounded by how deep
+a repo's tree goes. GitHub's code search (`extension:md repo:owner/name`) finds every match in
+one call instead -- checked its schema, then called it live against `psf/black` and got the
+same 39 files a direct unauthenticated GitHub REST call had already found independently, before
+building anything on top of it. Added it to the client (`list_markdown_files`) and the
+allowlist (`search_code`) the same way every other tool in this codebase gets vetted before use.
+
+**The tradeoff that came with that choice, stated rather than hidden:** code search only
+indexes a repo's default branch, not an arbitrary commit. A path it returns can genuinely not
+exist yet -- or no longer -- at the exact `head_sha` a review is running against. Content is
+always fetched fresh via `get_file` at the real commit regardless, so a stale path list can
+only ever cause a *miss*, never serve stale *content* -- and a missing file is caught per-file
+(`CodeHostError`, logged, skipped) rather than failing the whole ingestion over one renamed doc.
+
+**When it runs:** inline, on the first review that ever asks about a given `(repo, commit_sha)`
+-- checked via `ChunkStorePort.all_for_repo` returning empty, the same existence check the
+store already had to support for `HybridRetriever`. No background job, no admin endpoint, no
+second table tracking "has this been ingested" -- the chunk store already answers that
+question, and a review already has to reach the code host for the diff, so paying the one-time
+cost inline with the request that needs it avoids operating a second trigger for a fact the
+store can already tell you. Wired into `ReviewService` as an optional field (`ingestion:
+IngestionService | None = None`) precisely because every existing test's retriever needs no
+ingestion step -- the same reasoning `create_app`'s optional `lifespan` used in Phase 13.
+
+**Measured, not assumed, against the same two repos Phase 12 already ran.** Re-running
+`scripts/demo.py` -- now dropping its hand-curated `doc_paths` entirely and relying on
+automatic discovery -- against the identical `python/mypy#21647` and `psf/black#5237` gave a
+real before/after: discovery found 19 markdown files for mypy (528 chunks) against the 5 I'd
+picked by hand, and 39 for black (552 chunks) against my 5. Every finding survived grounding
+this run -- zero `malformed_chunk_id` drops, where Phase 12's hand-curated run had dropped all
+four of the correctness specialist's candidates that way. One run is a data point, not a trend
+(model sampling variance is a real, already-documented confound from Phase 6's golden-set
+result), but a materially richer corpus producing zero drops instead of four is at minimum
+consistent with the theory that thin retrieved context starves a specialist of anything real to
+cite, which is exactly the failure mode a wider, automatic corpus exists to fix.
+
+Also tightened `HybridRetriever.store` from a bare `object` to `ChunkStorePort` while adding
+the `all_for_repo` dependency this pipeline needed -- removing two `# type: ignore[attr-defined]`
+comments that existed only because the type had been looser than the port already was.
+
+## Live deploy verification — the Groq adapter's first real call, and it worked
+
+Once Render, Neon and Groq accounts existed, the deployed service
+(`https://quorum-aka2.onrender.com`) got checked the same way everything else in this project
+has been: by hitting it, not by trusting a green dashboard. `/healthz` and `/readyz` both came
+back correct from the actual live URL, and a real `POST /api/reviews` against `psf/black#5280`
+ran the full pipeline end to end -- real GitHub fetch, real routing, and `failed_specialists:
+[]` from the specialist stage, which is the answer to the one open question the whole build had
+been carrying: the Groq adapter had never been called with a real key until this exact request,
+and it worked cleanly on the first try. `candidates_proposed: 0` that run was a genuine "nothing
+to flag" result on a small single-file diff, not a failure.
+
 ## Phase 13 — deploy prep: the container ran, then didn't, for a reason nothing local shows
 
 Backend-only, on purpose -- `frontend/` is empty, so there is nothing for Vercel to serve yet.

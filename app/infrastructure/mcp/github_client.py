@@ -27,6 +27,11 @@ the real server, which consolidated them into one method-dispatch tool, ``pull_r
 This module and the allowlist were corrected to match; the fake server and its tests were
 updated in tandem.
 
+``list_markdown_files`` (``search_code``) was verified live too, against ``psf/black`` --
+returned the same 39 markdown files a direct, unauthenticated GitHub REST call found
+independently, confirming the query syntax and response shape before building the ingestion
+pipeline on top of it.
+
 ``post_review_comment``'s three-call write sequence (``pull_request_review_write`` create ->
 ``add_comment_to_pending_review`` -> ``pull_request_review_write`` submit_pending) is written
 against the real server's *documented* input schema, discovered from the same live
@@ -280,6 +285,41 @@ class GitHubMcpClient:
             return payload
         data = _as_mapping(payload, "get_file_contents")
         return str(data.get("content", ""))
+
+    async def list_markdown_files(self, repo: RepoRef, *, limit: int = 60) -> tuple[str, ...]:
+        """Adapter satisfying ``DocIngestionPort``.
+
+        why ``search_code`` rather than walking ``get_file_contents`` directory by directory:
+        pointed at a directory, ``get_file_contents`` returns that directory's immediate
+        entries (confirmed live, against ``psf/black``'s ``docs/`` -- a JSON array of
+        ``{type, name, path, ...}``), which means discovering every markdown file in a repo
+        would cost one call per directory level, unbounded by repo shape. GitHub's code search
+        (``extension:md repo:owner/name``) finds every match in one call. The tradeoff: code
+        search only indexes a repo's default branch, not an arbitrary commit -- the *paths* it
+        returns are current-branch, not necessarily what exists at the exact ``head_sha`` a
+        review is running against. Content is always fetched fresh via ``get_file`` at the real
+        commit afterward, so a stale path list can only ever miss a file, never serve stale
+        *content*.
+        alt: walk the tree via repeated get_file_contents (correct at any single ref, one round
+        trip per directory -- too slow for a synchronous first-request ingestion path)
+
+        ``limit`` caps at one page (GitHub's ``perPage`` max is 100) rather than paginating --
+        a repo with more than a few dozen real markdown docs is already well past what a
+        single review's retrieved-context budget can use, so a second API round trip to see
+        the rest would cost latency for docs nothing downstream would ever surface.
+        """
+        raw = await self._call(
+            "search_code",
+            {
+                "query": f"extension:md repo:{repo}",
+                "perPage": min(limit, 100),
+                "fields": ["path"],
+            },
+        )
+        data = _as_mapping(raw, "search_code")
+        items = data.get("items", [])
+        paths = [str(item["path"]) for item in items if isinstance(item, dict) and "path" in item]
+        return tuple(paths[:limit])
 
     async def list_changed_files(self, repo: RepoRef, number: int) -> tuple[ChangedFile, ...]:
         raw = await self._pull_request_read("get_files", repo, number)

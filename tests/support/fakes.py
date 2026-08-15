@@ -150,12 +150,15 @@ class FakeRetriever:
 
 @dataclass
 class FakeCodeHost:
-    """``CodeHostPort`` serving fixed PR data."""
+    """``CodeHostPort`` serving fixed PR data. Also satisfies ``DocIngestionPort`` (adds
+    ``list_markdown_files`` to the same ``get_file`` it already has) -- one fake for both,
+    since the real adapter (``GitHubMcpClient``) is the same object satisfying both too."""
 
     pull_request: PullRequest | None = None
     diff: Diff | None = None
     files: dict[str, str] = field(default_factory=dict)
     file_errors: set[str] = field(default_factory=set)
+    markdown_files: list[str] = field(default_factory=list)
     posted: list[tuple[str, object]] = field(default_factory=list)
 
     async def get_pull_request(self, repo: RepoRef, number: int) -> PullRequest:
@@ -165,6 +168,9 @@ class FakeCodeHost:
     async def get_diff(self, repo: RepoRef, number: int, *, max_lines: int) -> Diff:
         assert self.diff is not None
         return self.diff
+
+    async def list_markdown_files(self, repo: RepoRef, *, limit: int = 60) -> Sequence[str]:
+        return tuple(self.markdown_files[:limit])
 
     async def get_file(self, repo: RepoRef, path: str, *, ref: str) -> str:
         if path in self.file_errors:

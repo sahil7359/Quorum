@@ -81,6 +81,15 @@ underneath that, useful when actually debugging latency and noisy otherwise.
 `query_chars` rather than the query itself: specialist queries are built from diff content,
 which is untrusted and must not reach a log line at INFO.
 
+## Doc ingestion
+
+| Event | Level | Why it exists | Key fields |
+| --- | --- | --- | --- |
+| `ingestion.skipped` | DEBUG | The common case, once a repo has been reviewed once at a given commit — chunks already exist, nothing to do. DEBUG because this is the expected steady state, not something worth INFO-level noise on every review. | `repo`, `commit_sha`, `existing_chunks` |
+| `ingestion.completed` | INFO | A repo's docs were actually fetched, chunked and embedded for the first time at this commit. The one-time cost every subsequent review at that commit skips. | `repo`, `commit_sha`, `files`, `chunks` |
+| `ingestion.empty` | WARN | The repo has no discoverable markdown docs, or every discovered path failed to fetch. Not a failure of the review itself (it still runs, with zero retrieved context), but worth a human noticing why a repo's findings never cite anything. | `repo`, `commit_sha` |
+| `ingestion.file_skipped` | WARN | One discovered path couldn't be fetched at the review's exact commit. Expected sometimes — `search_code` indexes a repo's default branch, not an arbitrary commit, so a path can genuinely not exist yet or no longer at the commit being reviewed. WARN, not ERROR: ingestion continues with what it could fetch. | `repo`, `path`, `error` |
+
 ## Specialists and findings
 
 | Event | Level | Why it exists | Key fields |

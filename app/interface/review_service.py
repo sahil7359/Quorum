@@ -37,6 +37,7 @@ from app.domain.ports import (
 )
 from app.domain.values import RunId, RunStatus, SpecialistKind
 from app.infrastructure.mcp.quorum_server import finding_to_dict
+from app.interface.ingestion_service import IngestionService
 
 
 @dataclass
@@ -57,6 +58,10 @@ class ReviewService:
     config_hash: str
     max_diff_lines: int
     retrieval_top_k: int
+    # why optional: every test-built service uses a retriever that needs no ingestion step
+    # (FakeRetriever, or a store pre-populated directly). Only the real composition root,
+    # reviewing repos nobody has pre-ingested, needs this -- see ingestion_service.py.
+    ingestion: IngestionService | None = None
     _in_flight: dict[str, asyncio.Task[Review]] = field(default_factory=dict, repr=False)
 
     async def review(
@@ -160,6 +165,9 @@ class ReviewService:
             yield "review.completed", review_event(refused)
             return
 
+        if self.ingestion is not None:
+            await self.ingestion.ensure_ingested(repo, pull_request.head_sha)
+
         graph = build_review_graph(
             ingest=IngestNode(
                 code_host=self.code_host,
@@ -259,6 +267,9 @@ class ReviewService:
                 pull_request.head_sha,
                 "daily token budget exhausted; no cached review is available for this pull request",
             )
+
+        if self.ingestion is not None:
+            await self.ingestion.ensure_ingested(repo, pull_request.head_sha)
 
         graph = build_review_graph(
             ingest=IngestNode(

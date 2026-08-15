@@ -121,6 +121,23 @@ if MODE != "missing":
 
 
 @server.tool()
+def search_code(
+    query: str,
+    fields: list[str] | None = None,
+    perPage: int | None = None,  # noqa: N803 - GitHub's parameter name
+) -> dict[str, Any]:
+    """Mirrors the real server's response shape for ``extension:md repo:owner/name`` --
+    confirmed live against ``psf/black`` before this fake was written to match it."""
+    _fail_if_erroring()
+    paths = ["README.md", "docs/index.md", "docs/faq.md"]
+    return {
+        "incomplete_results": False,
+        "items": [{"path": p} for p in paths],
+        "total_count": len(paths),
+    }
+
+
+@server.tool()
 def pull_request_review_write(
     owner: str,
     repo: str,

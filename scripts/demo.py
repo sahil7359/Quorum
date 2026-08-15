@@ -15,11 +15,12 @@ real merged PRs with substantive inline review comments) and two PRs from that s
 so the PR numbers here aren't a fresh guess -- they're ones already known to carry the kind of
 review commentary that makes "did Quorum find something real" a meaningful question.
 
-Docs are ingested at each PR's own ``head_sha``, not a branch name -- retrieval keys chunks by
-(repo, commit_sha) and the review graph queries with the PR's real head_sha (see
-``nodes.py``'s ``SpecialistsNode``), so ingesting under a branch name would silently retrieve
-zero chunks for every specialist, the "green test for the wrong reason" failure mode this
-project has hit more than once and now checks for deliberately.
+Ingestion is automatic -- ``ReviewService.ingestion`` (``IngestionService``, added once the
+generic ingestion pipeline existed) discovers and fetches each repo's own markdown docs at the
+PR's exact ``head_sha`` before the graph runs. This script used to hand-curate a doc_paths list
+per repo and ingest it manually; that hardcoded list is gone now that discovery is real, and
+running this script against the same two repos again is exactly how the automatic pipeline
+got checked against known-good manual results rather than trusted on first use.
 
 Usage: ``uv run python -m scripts.demo``
 """
@@ -41,9 +42,9 @@ from app.infrastructure.observability.tracing import StructlogTracer
 from app.infrastructure.persistence.budget import SqliteBudgetTracker
 from app.infrastructure.persistence.rate_limiter import SqliteRateLimiter
 from app.infrastructure.persistence.review_cache import SqliteReviewCache
-from app.infrastructure.retrieval.chunker import chunk_markdown
 from app.infrastructure.retrieval.dense import FastEmbedEmbedder, InMemoryChunkStore
 from app.infrastructure.retrieval.hybrid import HybridRetriever
+from app.interface.ingestion_service import IngestionService
 from app.interface.review_service import ReviewService, review_event
 
 
@@ -51,58 +52,12 @@ from app.interface.review_service import ReviewService, review_event
 class GalleryEntry:
     repo: str
     pr_number: int
-    doc_paths: tuple[str, ...]
 
 
 GALLERY: tuple[GalleryEntry, ...] = (
-    GalleryEntry(
-        repo="python/mypy",
-        pr_number=21647,
-        doc_paths=(
-            "README.md",
-            "CONTRIBUTING.md",
-            "CHANGELOG.md",
-            "docs/README.md",
-            "mypyc/README.md",
-        ),
-    ),
-    GalleryEntry(
-        repo="psf/black",
-        pr_number=5237,
-        doc_paths=(
-            "README.md",
-            "CONTRIBUTING.md",
-            "docs/the_black_code_style/current_style.md",
-            "docs/faq.md",
-            "docs/usage_and_configuration/the_basics.md",
-        ),
-    ),
+    GalleryEntry(repo="python/mypy", pr_number=21647),
+    GalleryEntry(repo="psf/black", pr_number=5237),
 )
-
-
-async def ingest(
-    client: GitHubMcpClient,
-    entry: GalleryEntry,
-    embedder: FastEmbedEmbedder,
-    store: InMemoryChunkStore,
-) -> str:
-    """Fetches the gallery entry's PR metadata, then ingests its curated doc set at that
-    exact ``head_sha`` -- returns the head_sha so the caller reviews the same commit."""
-    repo = RepoRef.parse(entry.repo)
-    pull_request = await client.get_pull_request(repo, entry.pr_number)
-    head_sha = pull_request.head_sha
-
-    chunks = []
-    for path in entry.doc_paths:
-        text = await client.get_file(repo, path, ref=head_sha)
-        chunks.extend(chunk_markdown(text, repo=entry.repo, commit_sha=head_sha, file_path=path))
-    if not chunks:
-        raise SystemExit(f"no chunks ingested for {entry.repo} -- check doc_paths still exist")
-
-    embeddings = await embedder.embed([c.content for c in chunks])
-    await store.upsert(chunks, embeddings)
-    print(f"  ingested {len(chunks)} chunks from {len(entry.doc_paths)} files @ {head_sha[:8]}")
-    return head_sha
 
 
 async def main() -> None:
@@ -157,12 +112,14 @@ async def main() -> None:
             config_hash="demo",
             max_diff_lines=settings.max_diff_lines,
             retrieval_top_k=settings.retrieval_top_k,
+            ingestion=IngestionService(
+                doc_source=client, embedder=embedder, store=store, logger=logger
+            ),
         )
 
         print(f"gallery: {len(GALLERY)} repositories\n")
         for entry in GALLERY:
             print(f"{entry.repo}#{entry.pr_number}")
-            await ingest(client, entry, embedder, store)
 
             review = await service.review(RepoRef.parse(entry.repo), entry.pr_number)
             payload = review_event(review)

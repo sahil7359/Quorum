@@ -82,6 +82,12 @@ APPROVAL_DECIDED: Final = "approval.decided"
 PUBLISH_POSTED: Final = "publish.posted"
 PUBLISH_REFUSED: Final = "publish.refused"
 
+# --- doc ingestion -----------------------------------------------------------
+INGESTION_SKIPPED: Final = "ingestion.skipped"
+INGESTION_COMPLETED: Final = "ingestion.completed"
+INGESTION_EMPTY: Final = "ingestion.empty"
+INGESTION_FILE_SKIPPED: Final = "ingestion.file_skipped"
+
 
 ALL_EVENTS: Final[frozenset[str]] = frozenset(
     {
@@ -120,5 +126,9 @@ ALL_EVENTS: Final[frozenset[str]] = frozenset(
         APPROVAL_DECIDED,
         PUBLISH_POSTED,
         PUBLISH_REFUSED,
+        INGESTION_SKIPPED,
+        INGESTION_COMPLETED,
+        INGESTION_EMPTY,
+        INGESTION_FILE_SKIPPED,
     }
 )

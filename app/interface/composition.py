@@ -4,14 +4,15 @@ Wires ``Settings`` to real, Postgres-backed adapters -- the same shape ``scripts
 (Phase 12) proved works against a real ``GitHubMcpClient``, real Ollama, and real retrieval,
 but long-running behind HTTP instead of printing a gallery result and exiting.
 
-**The chunk store starts empty.** There is no per-request "ingest this repo's docs" step yet
--- picking how to trigger ingestion (on first request? a background job? an explicit admin
-endpoint?) and how to keep it fresh as a repo's default branch moves is real, undecided design
-work, deliberately deferred (HANDOFF.md's R7). A review against a repo nobody has ingested
-degrades to zero retrieved context per specialist rather than erroring -- ``HybridRetriever``
-and its chunk store both treat an empty result set as "nothing matched", not a failure -- so
-the service stays up, it just cites nothing for an un-ingested repo. Documented here rather
-than silently discovered by whoever deploys this first.
+**Ingestion happens on demand, inline with the first review that asks about a given
+(repo, commit_sha).** ``IngestionService.ensure_ingested`` (wired into ``ReviewService`` via
+its optional ``ingestion`` field) checks the chunk store first and only fetches + chunks +
+embeds a repo's docs if nothing is there yet -- see ``ingestion_service.py`` for why this
+answer (check-then-ingest inline, not a background job or an admin endpoint) was chosen for
+a question earlier phases left open: when does an arbitrary repo's documentation actually get
+indexed. A repo whose docs can't be listed or fetched still lets
+the review run -- ``HybridRetriever`` and its chunk store both treat an empty result set as
+"nothing matched", not a failure -- it just cites nothing that time.
 
 **Every adapter needing a real connection (the MCP client, the four Postgres adapters) is
 constructed twice: a throwaway, fully-valid placeholder at module level, replaced with the
@@ -51,6 +52,7 @@ from app.infrastructure.persistence.review_cache import SqliteReviewCache
 from app.infrastructure.retrieval.dense import FastEmbedEmbedder, InMemoryChunkStore
 from app.infrastructure.retrieval.hybrid import HybridRetriever
 from app.interface.api.app import create_app
+from app.interface.ingestion_service import IngestionService
 from app.interface.review_service import ReviewService
 
 settings = Settings()
@@ -116,6 +118,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             logger=logger,
             candidates=settings.retrieval_candidates,
             rerank_enabled=settings.rerank_enabled,
+        )
+        service.ingestion = IngestionService(
+            doc_source=client,
+            embedder=embedder,
+            store=chunk_store,
+            logger=logger,
         )
         service.cache = await PostgresReviewCache.connect(settings.database_url)
         service.budget = await PostgresBudgetTracker.connect(

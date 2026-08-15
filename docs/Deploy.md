@@ -20,27 +20,32 @@ the blueprint this document explains.
 - `/healthz`, `/readyz`, and a real `POST /api/reviews` request were exercised against a
   locally-run copy of `app.interface.composition:app` (real GitHub MCP server, real Ollama) --
   see LEARN.md's Phase 13 entry for what that run actually returned.
+- **Deployed for real, at `https://quorum-aka2.onrender.com`, with all three credentials
+  live.** `/healthz` and `/readyz` both green against the actual Render deployment, and a real
+  `POST /api/reviews` against `psf/black#5280` ran end to end with `failed_specialists: []` --
+  the Groq adapter's first-ever call against a real key, succeeding on the first try. See
+  LEARN.md's "live deploy verification" entry.
 
 ## What's required to deploy for real
 
 | Credential | Where it goes | Notes |
 | --- | --- | --- |
 | GitHub fine-grained PAT, `public_repo` scope | `QUORUM_GITHUB_TOKEN` | Same token Phase 2/6/12 already used locally. Read-only is enough -- this deploy exercises no write path. |
-| Groq API key | `QUORUM_GROQ_API_KEY` | **Never verified against a real key.** First live call should be treated as a smoke test, not assumed to work -- see HANDOFF.md's credential-blocked items. |
-| Neon Postgres connection string, `pgvector` extension enabled | `QUORUM_DATABASE_URL` | Plain `postgresql://...`, not `postgresql+psycopg://...` -- the `+psycopg` scheme is SQLAlchemy convention and `psycopg.connect()` cannot parse it (`missing "=" after ...`). Found wiring this exact deploy, not by inspection; fixed in `Settings`'s default and `.env.example`, but a Neon-issued string needs the same check before pasting it in. |
+| Groq API key | `QUORUM_GROQ_API_KEY` | Verified live against the actual deployment -- see above. |
+| Neon Postgres connection string, `pgvector` extension enabled | `QUORUM_DATABASE_URL` | Plain `postgresql://...`, not `postgresql+psycopg://...` -- the `+psycopg` scheme is SQLAlchemy convention and `psycopg.connect()` cannot parse it (`missing "=" after ...`). Found wiring this exact deploy, not by inspection; fixed in `Settings`'s default and `.env.example`. Verified live -- `/readyz` (checks the budget store) has returned `ready`, not 503, against the real Neon connection. |
 | Render account | hosting | Free tier, 512MB RAM -- the constraint that drove the `fastembed` choice over `sentence-transformers` in the first place. |
 
-## Known limitation: the chunk store starts empty
+## Ingestion
 
-There is no "ingest this repo's docs" step wired into the production composition root yet.
-`scripts/demo.py` (Phase 12) pre-ingests a curated doc set for two specific repos before
-reviewing them; the deployed service has no equivalent for an arbitrary repo a real caller
-asks about. A review against a repo nobody has ingested doesn't error -- `HybridRetriever` and
-its chunk store both treat zero matches as "nothing relevant", the same graceful-degradation
-path already proven in Phase 12's `python/mypy` run -- it just cites nothing, because there is
-nothing to cite. Deciding how ingestion should actually be triggered (on first request? a
-background job? an explicit admin call?) is real, undecided design work, deliberately deferred
-in HANDOFF.md (R7) rather than guessed at here.
+Resolved -- `IngestionService` (see `app/interface/ingestion_service.py`) answers a question
+earlier phases deliberately left open: on the first review that asks about a given
+`(repo, commit_sha)`, it discovers the repo's own markdown docs via GitHub code search
+(`extension:md repo:owner/name`, one API call, verified live against `psf/black`), fetches each
+at the review's exact commit, chunks, embeds, and stores them -- inline with that first
+request, not a background job or an admin endpoint. Every later review at the same commit skips
+straight past this (`ChunkStorePort.all_for_repo` already has rows). A repo whose docs can't be
+listed or fetched still lets the review run, with nothing to cite that time -- the same
+graceful-degradation path `HybridRetriever` and its chunk store already had.
 
 ## Deploying
 

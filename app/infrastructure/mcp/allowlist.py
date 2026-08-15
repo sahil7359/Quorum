@@ -27,6 +27,7 @@ READ_TOOLS: Final[frozenset[str]] = frozenset(
         #      alt: keep the granular names and hope docs matched the server (they did not)
         "pull_request_read",
         "get_file_contents",
+        "search_code",
     }
 )
 
