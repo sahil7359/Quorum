@@ -17,6 +17,7 @@ jobs:
   quality:
     name: lint · types · boundaries
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +42,7 @@ jobs:
   secrets:
     name: gitleaks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,6 +57,10 @@ jobs:
   tests:
     name: test suite
     runs-on: ubuntu-latest
+    # why: no job here should legitimately run past a few minutes (local pytest run is well
+    #      under a minute). A hard timeout turns a silent hang into a failed job with logs,
+    #      instead of an in-progress run nobody notices for hours.
+    timeout-minutes: 15
     # why: the Postgres integration suite (Phase 8/9) needs a real server, not a fake -- the
     #      whole reason those tests exist is that SQLite's append-only trigger and Postgres's
     #      append-only RULE are different mechanisms, and a fake can't tell them apart. A
@@ -91,6 +97,7 @@ jobs:
   retrieval-eval:
     name: retrieval eval gate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -109,6 +116,7 @@ jobs:
   container-build:
     name: container build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -135,6 +143,7 @@ jobs:
     #      ("Run workflow" in the Actions tab) after a change to any of those.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
