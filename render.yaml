@@ -1,0 +1,42 @@
+# Render Blueprint. https://render.com/docs/blueprint-spec
+#
+# Backend only -- there is no frontend to deploy yet (see LEARN.md's Phase 13 entry). One web
+# service running this repo's own Dockerfile; no Render-managed Postgres, because Neon is the
+# intended production database (HANDOFF.md's credential list) -- Neon supports pgvector on
+# every tier including free, which is why it was chosen over Render's own Postgres offering.
+#
+# QUORUM_LLM_PROVIDER=groq, not ollama: Ollama is a local daemon this repo has only ever run
+# against localhost. A hosted web service has no GPU and nothing to point QUORUM_OLLAMA_BASE_URL
+# at, so production has to run against Groq -- the one path in this codebase that has never
+# been exercised against a real API key (see HANDOFF.md's credential-blocked items;
+# QUORUM_GROQ_API_KEY is `sync: false` below specifically because it doesn't exist yet).
+services:
+  - type: web
+    name: quorum
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: QUORUM_GITHUB_TOKEN
+        sync: false
+      # why fixed, not the local-dev default: GitHubMcpClient's default
+      # (QUORUM_GITHUB_MCP_COMMAND=docker, spawning `docker run ghcr.io/github/github-mcp-server`
+      # as a child process) needs a docker binary and a daemon to talk to -- neither exists
+      # inside a Render container. Confirmed by actually running this image without one:
+      # `FileNotFoundError: [Errno 2] No such file or directory: 'docker'`. The Dockerfile
+      # vendors the server's own binary instead; these two values point at it directly.
+      - key: QUORUM_GITHUB_MCP_COMMAND
+        value: /usr/local/bin/github-mcp-server
+      - key: QUORUM_GITHUB_MCP_ARGS
+        value: stdio
+      - key: QUORUM_LLM_PROVIDER
+        value: groq
+      - key: QUORUM_GROQ_API_KEY
+        sync: false
+      - key: QUORUM_DATABASE_URL
+        sync: false
+      - key: QUORUM_LOG_FORMAT
+        value: json
+      - key: QUORUM_LOG_LEVEL
+        value: INFO

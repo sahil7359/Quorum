@@ -17,7 +17,8 @@ that half-supports both.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException
@@ -33,10 +34,23 @@ class ReviewRequest(BaseModel):
     pr_number: int = Field(..., gt=0)
 
 
-def create_app(service: ReviewService) -> FastAPI:
+def create_app(
+    service: ReviewService,
+    *,
+    lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None,
+) -> FastAPI:
     """The composition root wires a real ``ReviewService`` and passes it here. Tests pass one
-    built entirely from fakes -- this function never constructs an adapter itself."""
-    app = FastAPI(title="Quorum", version="0.1.0")
+    built entirely from fakes -- this function never constructs an adapter itself.
+
+    ``lifespan`` is optional because every test-built ``service`` is already fully usable at
+    construction time (fakes need no connection step). ``code_host`` (a real
+    ``GitHubMcpClient``) does: its subprocess and MCP session have to be opened inside the
+    same event loop that serves requests, not at import time in a throwaway loop of their
+    own, or the transport ends up bound to a loop that's already closed by the time a request
+    needs it. The real composition root (``app/interface/composition.py``) is the one caller
+    that passes this.
+    """
+    app = FastAPI(title="Quorum", version="0.1.0", lifespan=lifespan)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

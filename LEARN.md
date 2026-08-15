@@ -7,6 +7,66 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 13 — deploy prep: the container ran, then didn't, for a reason nothing local shows
+
+Backend-only, on purpose -- `frontend/` is empty, so there is nothing for Vercel to serve yet.
+Scope was writing `render.yaml` and the real production composition root
+(`app/interface/composition.py`, `uvicorn app.interface.composition:app`), Postgres-backed
+instead of Phase 12's SQLite/in-memory demo wiring.
+
+**A Protocol never instantiated as itself hides a type error indefinitely -- second time this
+session.** Wiring `ReviewService(code_host=client, ...)` for real, mypy --strict rejected it:
+`GitHubMcpClient.post_summary_comment` declared `approvals: list[Approval]`, narrower than
+`CodeHostPort`'s `Sequence[Approval]`, so the class had never actually satisfied the Protocol
+structurally. No test caught it because no test had ever assigned a real `GitHubMcpClient` to a
+`CodeHostPort`-typed variable -- exactly the same shape of gap as Phase 12's finding, in a
+different method, found by the same act of finally doing the real assignment.
+
+**`QUORUM_DATABASE_URL`'s own default value was never valid input to the driver that reads
+it.** `Settings.database_url` defaulted to `postgresql+psycopg://...` -- SQLAlchemy convention
+for "use the psycopg driver," borrowed by habit though this codebase has no SQLAlchemy
+anywhere, only psycopg directly. `psycopg.connect()` doesn't understand `+psycopg` at all
+(`missing "=" after ...`, not a connection failure -- a syntax error in the DSN itself). Nothing
+had caught this in eight phases of Postgres work because every Postgres test uses its own
+hardcoded plain DSN via `QUORUM_TEST_DATABASE_URL`, bypassing `Settings.database_url` entirely.
+The actual local `.env` had independently picked up the same wrong scheme (copied from
+`.env.example`, which had it too) and needed the identical fix -- confirmed by starting the real
+server and watching it fail with exactly that error before either was corrected.
+
+**The container built, and would have failed showing nothing useful on Render specifically.**
+`docker build .` succeeding (CI's `container-build` job) says nothing about whether the image
+*runs* correctly -- that job has never once been run, only built. Running it locally without
+Docker socket access -- the actual condition on any standard PaaS container, Render included --
+reproduced the real failure immediately: `GitHubMcpClient`'s default launch command is `docker
+run ghcr.io/github/github-mcp-server`, spawning the MCP server as a *sibling* container, which
+needs a Docker daemon nothing inside a plain container has. `FileNotFoundError: [Errno 2] No
+such file or directory: 'docker'` -- a fast, clear failure locally, but on a platform where the
+only feedback is "the deploy is unhealthy," this is the kind of thing that burns an afternoon of
+guessing before anyone thinks to check whether the container can reach a Docker daemon at all.
+Fixed by vendoring the server's own binary into the image (`COPY --from=ghcr.io/github/github-
+mcp-server:latest /server/github-mcp-server /usr/local/bin/`) and pointing
+`QUORUM_GITHUB_MCP_COMMAND` at it directly instead of at `docker`. Verified the fix the same
+way the break was found: rebuilt, ran again with the identical lack of Docker access, watched
+`/healthz` and `/readyz` both come back clean this time.
+
+**The MCP client's connection has to open inside the same event loop that serves requests, not
+at import time.** `create_app(service)` (Phase 8) always took an already-usable `service` --
+every test built one from fakes needing no connection step, so nothing before this ever had to
+ask *when* a real async resource gets acquired. `GitHubMcpClient`'s session is backed by an
+`anyio` task group tied to whichever loop opened it; opening it eagerly at module import (its
+own throwaway loop, immediately closed) and using it later from uvicorn's serving loop would
+hand every request a transport already bound to a dead loop. Added an optional `lifespan`
+parameter to `create_app` rather than restructure it -- every existing Phase 8 test still
+constructs a service and calls `create_app(service)` with no lifespan and no change in
+behaviour; only the real composition root passes one.
+
+Both `/healthz` and `/readyz` were hit against a locally-run copy of the real composition root,
+plus one real `POST /api/reviews` end to end over SSE -- see `docs/Deploy.md` for exactly what
+that proved and what's still assumed (Groq, never called with a real key; ingestion into the
+production chunk store, not built at all yet, degrading to zero cited context rather than
+erroring -- the same graceful-empty-result path Phase 12 already proved works, just now with
+nothing ever having ingested anything for the deployed service).
+
 ## Phase 12 — the demo: nobody had actually built the composition root yet
 
 Every earlier phase built and tested one piece at a time against fakes or against this

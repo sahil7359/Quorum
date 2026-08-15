@@ -62,7 +62,14 @@ class Settings(BaseSettings):
     )
 
     # --- Persistence --------------------------------------------------------
-    database_url: str = "postgresql+psycopg://quorum:quorum@localhost:5433/quorum"
+    # why: plain "postgresql://", not "postgresql+psycopg://" -- the +driver suffix is
+    #      SQLAlchemy convention. There is no SQLAlchemy anywhere in this codebase, only
+    #      psycopg directly, and psycopg.connect() cannot parse the +psycopg scheme at all
+    #      ("missing '=' after ..."). Found wiring the first real caller of this value
+    #      (scripts/composition.py) against a real connection, not by inspection -- nothing
+    #      before that had ever passed database_url itself to psycopg; every Postgres test
+    #      uses its own hardcoded plain DSN via QUORUM_TEST_DATABASE_URL instead.
+    database_url: str = "postgresql://quorum:quorum@localhost:5433/quorum"
 
     # --- Retrieval ----------------------------------------------------------
     embedding_model: str = "BAAI/bge-small-en-v1.5"

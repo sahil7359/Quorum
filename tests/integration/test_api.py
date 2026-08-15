@@ -5,8 +5,11 @@ handling a real HTTP request/response cycle -- not a call into the route functio
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
+from fastapi import FastAPI
 
 from app.domain.entities import ChangedFile, Diff, DiffHunk, PullRequest, RepoRef
 from app.infrastructure.persistence.budget import SqliteBudgetTracker
@@ -75,6 +78,40 @@ def _parse_sse(text: str) -> list[tuple[str, dict[str, object]]]:
         elif line.startswith("data: ") and event_name is not None:
             events.append((event_name, json.loads(line.removeprefix("data: "))))
     return events
+
+
+class TestLifespan:
+    async def test_a_given_lifespan_is_wired_into_the_app(self) -> None:
+        """The real composition root (app/interface/composition.py) is the one caller that
+        passes a lifespan -- it's how a real GitHubMcpClient's connection gets opened inside
+        uvicorn's own serving loop instead of a throwaway one at import time. Every fake-built
+        service in this file passes none, matching Phase 8's original, still-correct default.
+        This only checks the plumbing, not lifecycle execution: httpx's ASGITransport doesn't
+        drive the ASGI lifespan protocol at all, confirmed directly before writing this rather
+        than assumed, so a test asserting the callback actually ran would need a dependency
+        (asgi-lifespan's LifespanManager) this project doesn't otherwise need."""
+
+        @asynccontextmanager
+        async def lifespan(_app: FastAPI) -> AsyncIterator[None]:  # pragma: no cover - unused
+            yield
+
+        service = ReviewService(
+            code_host=a_code_host(),
+            route_model=FakeChatModel(responses={}),
+            specialist_model=FakeChatModel(responses={}),
+            retriever=FakeRetriever(),
+            cache=SqliteReviewCache(),
+            budget=SqliteBudgetTracker(limit=1, clock=FrozenClock()),
+            rate_limiter=SqliteRateLimiter(limit=1, clock=FrozenClock()),
+            clock=FrozenClock(),
+            logger=RecordingLogger(),
+            tracer=NullTracer(),
+            config_hash="test-config-hash",
+            max_diff_lines=1500,
+            retrieval_top_k=5,
+        )
+        app = create_app(service, lifespan=lifespan)
+        assert app.router.lifespan_context is lifespan
 
 
 class TestHealthAndReadiness:

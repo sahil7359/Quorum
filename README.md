@@ -131,6 +131,7 @@ mean" conversation, including what I'd do differently.
 | [Schema](docs/Schema.md) | Data model and chunk identity |
 | [Guardrails](docs/Guardrails.md) | Trust boundaries and every control mapped to a test |
 | [Security](docs/Security.md) | Threat model, OWASP LLM + Agentic Top 10 mapping |
+| [Deploy](docs/Deploy.md) | Render setup, required credentials, what's verified vs. assumed |
 | [`docs/adr/`](docs/adr/) | Architecture decision records |
 
 ## Development

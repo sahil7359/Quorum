@@ -33,6 +33,16 @@ FROM python:3.12-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# why: locally, GitHubMcpClient shells out to `docker run ghcr.io/github/github-mcp-server`
+# (QUORUM_GITHUB_MCP_COMMAND=docker) because a dev machine already has Docker. A container
+# running on Render has no docker binary and no socket to talk to one -- confirmed by actually
+# running this image without one: `FileNotFoundError: [Errno 2] No such file or directory:
+# 'docker'`, not a vague timeout. Vendoring the server's own binary into this image and
+# invoking it directly as a plain subprocess avoids needing Docker-in-Docker at all.
+# QUORUM_GITHUB_MCP_COMMAND/QUORUM_GITHUB_MCP_ARGS are overridden at deploy time (render.yaml)
+# to point at it; local dev is untouched.
+COPY --from=ghcr.io/github/github-mcp-server:latest /server/github-mcp-server /usr/local/bin/github-mcp-server
+
 RUN useradd --create-home --uid 1000 quorum
 WORKDIR /app
 COPY --from=builder --chown=quorum:quorum /app/.venv /app/.venv
@@ -44,10 +54,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 EXPOSE 8000
 
-# why: no CMD baked in with a hardcoded module path to the (not-yet-built, see Phase 12)
-# composition script -- documented here as the shape the eventual CMD takes rather than
-# guessed at, since the real entrypoint doesn't exist yet.
-# CMD ["uvicorn", "app.interface.composition:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.interface.composition:app", "--host", "0.0.0.0", "--port", "8000"]
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" || exit 1
