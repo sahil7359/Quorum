@@ -61,6 +61,41 @@ Also tightened `HybridRetriever.store` from a bare `object` to `ChunkStorePort` 
 the `all_for_repo` dependency this pipeline needed -- removing two `# type: ignore[attr-defined]`
 comments that existed only because the type had been looser than the port already was.
 
+### The live-deployment OOM, and why the fix is not yet fully confirmed
+
+Deploying Phase 14 and immediately testing it against a repo it had never seen
+(`python/mypy#20146`, deliberately not from the gallery) surfaced a real production failure
+within minutes, not months: the container restarted mid-request, `/healthz` recovering
+immediately after -- the signature of an OOM kill, not a code exception, on Render's 512MB
+free tier. Two rounds of real fixes, each verified against the actual failure it targeted:
+
+1. **Per-file embed+upsert instead of whole-repo accumulation.** The original loop collected
+   every file's chunks into one list, then called `embed()` and `upsert()` once at the end --
+   for `mypy`, 19 files became ~530 chunks held simultaneously, text and (after one call)
+   embedding vectors both, alongside fastembed's own ONNX runtime. Rewrote to embed and
+   upsert per file, discarding each file's chunks before moving to the next. Redeployed,
+   retested the same request: `ingestion.started` now reached the client over SSE (proving a
+   second, independent fix below worked), but the connection still died with no
+   `ingestion.completed` and `/healthz` 502'd again right after -- the same crash, later.
+2. **Lowered `max_files` from 60 to 20, then to 8**, each drop driven by a fresh measured
+   failure against the live service rather than by guessing a smaller number in the abstract.
+
+**What's confirmed and what's not.** All of the above is verified *locally* -- the full test
+suite, and a real run against `python/mypy#21647` and `psf/black#5237` producing correct,
+richer results than Phase 14's first version. What is **not** yet confirmed is whether
+`max_files=8` actually survives the live 512MB container, because the next live test
+(`python/mypy#21743`, a repo never touched before) hit `QUORUM_LIVE_REVIEWS_PER_DAY`'s daily
+cap instead of running at all -- this session's own repeated live testing had already spent
+the quota. That the rate limiter caught this correctly, against the real Neon-backed counter,
+is itself a working confirmation of a different guardrail (G14) doing its job -- but it means
+today's loop ends here rather than with a clean pass/fail on the memory fix.
+
+**If `max_files=8` still isn't enough** when this gets retested, the honest next options are a
+paid Render tier with more RAM, or moving the embedding call out of process (a hosted
+embedding API instead of a local ONNX model) -- not more batching cleverness, which is likely
+past the point of diminishing returns against a budget this tight. Stated here so this reads
+as an open question with real next steps, not a problem quietly declared solved.
+
 ## Live deploy verification — the Groq adapter's first real call, and it worked
 
 Once Render, Neon and Groq accounts existed, the deployed service
