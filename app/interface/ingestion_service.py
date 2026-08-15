@@ -31,13 +31,15 @@ class IngestionService:
     embedder: EmbedderPort
     store: ChunkStorePort
     logger: LoggerPort
-    # why 20, not the 60 first tried: python/mypy has only 19 markdown files and still
-    # produced ~530 chunks -- ingesting a 60-file repo synchronously, inline with one HTTP
-    # request, on a 512MB deployment, is exactly the shape of the OOM restart caught live
-    # against the deployed service (see LEARN.md). 20 is still 4x richer than the five files
-    # Phase 12's hand-curated demo picked per repo, while keeping one request's worth of work
-    # bounded on a resource-constrained host.
-    max_files: int = 20
+    # why 8: 60, then 20, both still triggered an OOM restart on the live 512MB deployment --
+    # per-file embed+upsert (see ensure_ingested) bounds peak memory per file, not total
+    # request memory, and this container's baseline (fastembed's ONNX runtime, the MCP
+    # subprocess, uvicorn) already appears to leave little headroom on the free tier. 8 is
+    # close to Phase 12's hand-curated five-files-per-repo baseline, which is known to have
+    # run there without incident -- a deliberately conservative number chosen from a measured
+    # failure, not a guess. See LEARN.md for what would actually raise this ceiling (more RAM,
+    # or an out-of-process embedding call instead of a local ONNX model).
+    max_files: int = 8
 
     async def ensure_ingested(self, repo: RepoRef, commit_sha: str) -> int:
         """Populates the chunk store for ``(repo, commit_sha)`` if it is empty.
