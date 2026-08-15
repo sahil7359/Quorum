@@ -95,9 +95,7 @@ async def ingest(
     chunks = []
     for path in entry.doc_paths:
         text = await client.get_file(repo, path, ref=head_sha)
-        chunks.extend(
-            chunk_markdown(text, repo=entry.repo, commit_sha=head_sha, file_path=path)
-        )
+        chunks.extend(chunk_markdown(text, repo=entry.repo, commit_sha=head_sha, file_path=path))
     if not chunks:
         raise SystemExit(f"no chunks ingested for {entry.repo} -- check doc_paths still exist")
 
