@@ -23,6 +23,8 @@ from app.domain.values import ChunkLocator, RunStatus
 from app.infrastructure.persistence.budget import SqliteBudgetTracker
 from app.infrastructure.persistence.rate_limiter import SqliteRateLimiter
 from app.infrastructure.persistence.review_cache import SqliteReviewCache
+from app.infrastructure.retrieval.dense import HashEmbedder, InMemoryChunkStore
+from app.interface.ingestion_service import IngestionService
 from app.interface.review_service import ReviewService
 from tests.support.fakes import (
     FakeChatModel,
@@ -115,6 +117,7 @@ def make_service(
     budget_limit: int = 1_000_000,
     rate_limit: int = 1000,
     clock: FrozenClock | None = None,
+    ingestion: IngestionService | None = None,
 ) -> ReviewService:
     clock = clock or FrozenClock()
     return ReviewService(
@@ -131,6 +134,7 @@ def make_service(
         config_hash="test-config-hash",
         max_diff_lines=1500,
         retrieval_top_k=5,
+        ingestion=ingestion,
     )
 
 
@@ -293,6 +297,45 @@ class TestStreaming:
         assert final["status"] == "proposed"
         assert len(final["findings"]) == 1
         assert final["posted_to_github"] is False
+
+    async def test_an_ingestion_yields_started_and_completed_events_around_it(self) -> None:
+        """Regression test: found live, against the deployed service, that a repo needing
+        real ingestion produced a completely silent SSE connection for however long
+        ingestion took -- no event of any kind until the graph itself started, which is
+        indistinguishable from a hung connection to a caller or a reverse proxy sitting in
+        front of one. These two events exist so the stream has something to yield the moment
+        ingestion starts, not only once it finishes."""
+        host = a_code_host(head_sha="freshsha1")
+        host.markdown_files = ["README.md"]
+        host.files["README.md"] = (
+            "# Widget\n\nThis paragraph is long enough to clear the chunker's minimum "
+            "token threshold, so a real chunk gets produced and ingested here.\n"
+        )
+        ingestion = IngestionService(
+            doc_source=host,
+            embedder=HashEmbedder(),
+            store=InMemoryChunkStore(),
+            logger=RecordingLogger(),
+        )
+        service = make_service(code_host=host, ingestion=ingestion)
+
+        events = [event async for event in service.review_stream(REPO, 42)]
+        names = [name for name, _ in events]
+
+        assert names == [
+            "ingestion.started",
+            "ingestion.completed",
+            "node.ingest",
+            "node.route",
+            "node.specialists",
+            "node.synthesise",
+            "review.completed",
+        ]
+        assert dict(events)["ingestion.started"] == {
+            "repo": str(REPO),
+            "commit_sha": "freshsha1",
+        }
+        assert dict(events)["ingestion.completed"]["chunks"] > 0
 
     async def test_a_cache_hit_yields_a_single_completed_event(self) -> None:
         cache = SqliteReviewCache()

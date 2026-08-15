@@ -31,7 +31,13 @@ class IngestionService:
     embedder: EmbedderPort
     store: ChunkStorePort
     logger: LoggerPort
-    max_files: int = 60
+    # why 20, not the 60 first tried: python/mypy has only 19 markdown files and still
+    # produced ~530 chunks -- ingesting a 60-file repo synchronously, inline with one HTTP
+    # request, on a 512MB deployment, is exactly the shape of the OOM restart caught live
+    # against the deployed service (see LEARN.md). 20 is still 4x richer than the five files
+    # Phase 12's hand-curated demo picked per repo, while keeping one request's worth of work
+    # bounded on a resource-constrained host.
+    max_files: int = 20
 
     async def ensure_ingested(self, repo: RepoRef, commit_sha: str) -> int:
         """Populates the chunk store for ``(repo, commit_sha)`` if it is empty.
@@ -52,7 +58,16 @@ class IngestionService:
 
         paths = await self.doc_source.list_markdown_files(repo, limit=self.max_files)
 
-        chunks = []
+        # why embedded and upserted per file, not accumulated across the whole repo into one
+        # bulk call at the end: a repo the size of mypy's docs (19 files, ~530 chunks) held
+        # entirely in memory at once -- every chunk's text, then every chunk's embedding
+        # vector, alongside fastembed's own ONNX runtime -- pushed a 512MB deployment into an
+        # OOM restart, caught by an actual request to the deployed service returning a 502
+        # rather than by reasoning about memory budgets in the abstract. Processing one file's
+        # handful of chunks at a time keeps peak memory bounded by the biggest single file,
+        # not the whole repo.
+        total = 0
+        ingested_files = 0
         for path in paths:
             try:
                 text = await self.doc_source.get_file(repo, path, ref=commit_sha)
@@ -69,21 +84,24 @@ class IngestionService:
                     error=f"{type(exc).__name__}: {exc}"[:200],
                 )
                 continue
-            chunks.extend(
-                chunk_markdown(text, repo=str(repo), commit_sha=commit_sha, file_path=path)
+            file_chunks = chunk_markdown(
+                text, repo=str(repo), commit_sha=commit_sha, file_path=path
             )
+            if not file_chunks:
+                continue
+            embeddings = await self.embedder.embed([c.content for c in file_chunks])
+            total += await self.store.upsert(file_chunks, embeddings)
+            ingested_files += 1
 
-        if not chunks:
+        if total == 0:
             self.logger.warn(log_events.INGESTION_EMPTY, repo=str(repo), commit_sha=commit_sha)
             return 0
 
-        embeddings = await self.embedder.embed([c.content for c in chunks])
-        count = await self.store.upsert(chunks, embeddings)
         self.logger.info(
             log_events.INGESTION_COMPLETED,
             repo=str(repo),
             commit_sha=commit_sha,
-            files=len(paths),
-            chunks=count,
+            files=ingested_files,
+            chunks=total,
         )
-        return count
+        return total

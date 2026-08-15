@@ -166,7 +166,17 @@ class ReviewService:
             return
 
         if self.ingestion is not None:
-            await self.ingestion.ensure_ingested(repo, pull_request.head_sha)
+            # why an event straddles this call rather than just awaiting it: on a repo
+            # nobody has ingested yet, this can be the slowest single step in the whole
+            # request -- and it is the *only* step with nothing to yield mid-way, unlike the
+            # graph nodes below. A caller (or a reverse proxy sitting in front of one) sees a
+            # completely silent connection for however long ingestion takes, with none of the
+            # graph's own SSE traffic to prove the request is still alive. Two events instead
+            # of zero costs nothing and gives a proxy something to see before its own idle
+            # timeout decides the connection is dead.
+            yield "ingestion.started", {"repo": str(repo), "commit_sha": pull_request.head_sha}
+            chunks_ingested = await self.ingestion.ensure_ingested(repo, pull_request.head_sha)
+            yield "ingestion.completed", {"chunks": chunks_ingested}
 
         graph = build_review_graph(
             ingest=IngestNode(
