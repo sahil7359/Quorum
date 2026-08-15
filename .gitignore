@@ -37,6 +37,9 @@ models/
 eval/_runs/
 eval/_scratch/
 
+# Demo script output — regenerated on every run, not something to diff in git
+scripts/demo_output/
+
 # Node / frontend
 node_modules/
 .next/

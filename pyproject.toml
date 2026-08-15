@@ -50,7 +50,7 @@ packages = ["app"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["app", "eval", "tests"]
+src = ["app", "eval", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = [
@@ -78,7 +78,7 @@ ignore = [
 ban-relative-imports = "all"
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "eval", "tests"]
+known-first-party = ["app", "eval", "tests", "scripts"]
 
 # ---------------------------------------------------------------------------
 # mypy — strict, no exceptions carved out for our own code
@@ -93,7 +93,7 @@ disallow_any_generics = true
 no_implicit_reexport = true
 show_error_codes = true
 pretty = true
-files = ["app", "eval", "tests"]
+files = ["app", "eval", "tests", "scripts"]
 
 [[tool.mypy.overrides]]
 # why: third-party packages without shipped stubs. Narrow, named, and re-reviewed whenever a

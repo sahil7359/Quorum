@@ -7,6 +7,58 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 12 — the demo: nobody had actually built the composition root yet
+
+Every earlier phase built and tested one piece at a time against fakes or against this
+repository's own docs. `create_app(service)` (Phase 8) takes an already-constructed
+`ReviewService` and never builds one. `eval/smoke/live_review.py` (Phase 5) runs a real model
+against a real retriever, but a hand-written diff and a `FakeCodeHost` -- never a real
+`GitHubMcpClient`. Nothing before this had ever assigned a real MCP client to a
+`CodeHostPort`-typed variable, wired real persistence around it, and pointed the whole thing at
+a genuine pull request. `scripts/demo.py` is that: `Settings()` to real adapters -- the actual
+`ghcr.io/github/github-mcp-server` container, real Ollama, `FastEmbedEmbedder`, SQLite cache
+and budget -- run against two PRs already known (from Phase 6's golden set) to carry real
+review commentary, gallery scoped to `python/mypy` and `psf/black` rather than the full six
+repositories HANDOFF.md deferred, since picking four more well was never the point of this pass.
+
+**Wiring it up caught a real type bug that every earlier phase missed.** mypy --strict rejected
+`ReviewService(code_host=client, ...)`: `GitHubMcpClient.post_summary_comment` declared
+`approvals: list[Approval]`, but `CodeHostPort` declares `Sequence[Approval]`, and a narrower
+parameter type doesn't satisfy a Protocol expecting the wider one. No test had ever caught it
+because no test had ever assigned a real `GitHubMcpClient` to a `CodeHostPort`-typed slot --
+every existing test either called the client directly (concrete type, no structural check) or
+used a fake built against the Protocol correctly by construction. Fixed by widening the
+parameter to `Sequence[Approval]`, matching the port. The lesson repeats: a Protocol not
+actually instantiated anywhere as its abstract type gets none of the checking it exists to
+provide.
+
+**Ingesting docs at the wrong commit would have been a silent, invisible zero.** Retrieval
+keys every chunk by `(repo, commit_sha)`, and the review graph queries with the PR's real
+`head_sha` (`SpecialistsNode` in `nodes.py`), not a branch name. The first draft of the
+ingestion helper fetched documentation at `"main"`/`"master"` for convenience and would have
+stored every chunk under that string. `HybridRetriever._bm25_for` and
+`InMemoryChunkStore.search_dense` both filter by exact `commit_sha` match -- a mismatch there
+doesn't error, it just returns zero chunks to every specialist, indistinguishable from "nothing
+relevant in the docs" unless someone is watching for it. Caught before running, not by a test
+failing: fetching the PR's `head_sha` first and ingesting *at* that exact commit removes the
+mismatch outright rather than adding an assertion to catch it after the fact.
+
+**The real run surfaced a citation failure mode Phase 6 hadn't shown yet.** Reviewing
+`python/mypy#21647` (35 new public symbols across 17 files), every candidate finding the
+correctness specialist proposed was dropped -- all four, all `malformed_chunk_id`, not
+`no_citation`. Phase 6's golden-set run saw the model omit the citation field entirely; here it
+attempted one and got the id wrong instead, a different failure inside the same guardrail. The
+security and test-coverage specialists on the same diff cited correctly and survived (5 findings
+kept). One diff, one specialist type, one clean failure mode -- not evidence about correctness
+prompting specifically, but a second, different way real grounding fails that a synthetic diff
+would not have shown. `psf/black#5237` reviewed cleanly by comparison: 4 findings, all cited
+correctly, across correctness, security, and test coverage. Both runs' full JSON output are
+written to `scripts/demo_output/` (gitignored -- regenerated output, not something to diff).
+
+No write path exercised. `service.review()` only reads; posting a comment needs a GitHub App
+and a deliberately chosen throwaway PR, neither of which exist yet -- see HANDOFF.md's
+credential-blocked items.
+
 ## Phase 11 — CI: the container never built, the eval gate never agreed with itself, and the
 test job actually hung
 

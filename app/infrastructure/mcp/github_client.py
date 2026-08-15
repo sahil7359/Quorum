@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Sequence
 from contextlib import AsyncExitStack
 from types import TracebackType
 from typing import Any, Self
@@ -362,7 +363,7 @@ class GitHubMcpClient:
         number: int,
         body: str,
         *,
-        approvals: list[Approval],
+        approvals: Sequence[Approval],
     ) -> str:
         if not approvals:
             raise ApprovalRequiredError("summary comment requires at least one approval")
