@@ -1,0 +1,13 @@
+# why: without this, `COPY . .` in the build stage copies the local (Windows-built)
+# node_modules over the clean Linux one installed in the deps stage, and the container's
+# `next` binary is then a Windows artifact that fails with "Cannot find module .../next".
+# Found by actually building the image, not by inspection.
+node_modules/
+.next/
+out/
+.vercel/
+next-env.d.ts
+*.tsbuildinfo
+.env
+.env.*
+!.env.example

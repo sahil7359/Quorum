@@ -12,8 +12,8 @@ repository's own documentation, and won't post anything without a human approvin
 ![MCP](https://img.shields.io/badge/MCP-client%20%2B%20server-6E56CF)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-**Live demo:** not yet deployed — see [`learn/LLD.md`](learn/LLD.md) for what's built and
-tested today versus what's left.
+**Live backend:** [quorum-aka2.onrender.com](https://quorum-aka2.onrender.com) · **Run it &
+present it:** [`DEMO.md`](DEMO.md) — 60-second live demo, local setup, and the interview walkthrough.
 
 </div>
 
@@ -120,6 +120,7 @@ mean" conversation, including what I'd do differently.
 
 | Document | What it answers |
 | --- | --- |
+| [`DEMO.md`](DEMO.md) | How to run it, test it, deploy the frontend, and present it in an interview |
 | [`learn/HLD.md`](learn/HLD.md) | System architecture, request lifecycle, scaling posture |
 | [`learn/LLD.md`](learn/LLD.md) | Class-level design, algorithms, schemas, sequence flows |
 | [`learn/interview-prep.md`](learn/interview-prep.md) | System-design Q&A: cost control, scaling, honest gaps |

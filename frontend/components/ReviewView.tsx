@@ -6,9 +6,22 @@ import { FindingCard } from "@/components/FindingCard";
 import { ProgressSteps } from "@/components/ProgressSteps";
 import { useReview } from "@/hooks/useReview";
 
+// Curated demo PRs -- real merged pull requests on repos with real documentation, so a review
+// has something to ground findings in. The first one is the headline demo. Both are from the
+// Phase 6 golden set, so they're known to carry substantive change worth reviewing.
 const EXAMPLES = [
-  { label: "mypy #21647", repo: "python/mypy", pr: 21647 },
-  { label: "black #5237", repo: "psf/black", pr: 5237 },
+  {
+    label: "python/mypy #21647",
+    repo: "python/mypy",
+    pr: 21647,
+    blurb: "35 new public symbols across 17 files — routes to all three specialists",
+  },
+  {
+    label: "psf/black #5237",
+    repo: "psf/black",
+    pr: 5237,
+    blurb: "a pickle-deserialisation change — trips the security heuristic",
+  },
 ];
 
 export function ReviewView() {
@@ -40,7 +53,36 @@ export function ReviewView() {
         </p>
       </header>
 
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      {state.phase === "idle" && (
+        <section className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div>
+            <h2 className="text-sm font-medium">Try it — one click</h2>
+            <p className="text-xs opacity-50">
+              Watch the review stream live: ingest the diff, route to specialists, ground every
+              finding in the repo&apos;s own docs. First run of a PR indexes its docs (~30s);
+              after that it&apos;s cached and instant.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex.label}
+                type="button"
+                onClick={() => runExample(ex.repo, ex.pr)}
+                className="rounded-lg border border-white/10 p-3 text-left transition hover:bg-white/5"
+              >
+                <span className="text-sm font-medium">{ex.label}</span>
+                <span className="mt-1 block text-xs opacity-60">{ex.blurb}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <form onSubmit={submit} className="flex flex-col gap-2">
+        {state.phase === "idle" && (
+          <label className="text-xs opacity-50">…or review any public PR:</label>
+        )}
         <div className="flex gap-2">
           <input
             value={repo}
@@ -65,22 +107,6 @@ export function ReviewView() {
             {busy ? "Reviewing…" : "Review"}
           </button>
         </div>
-
-        {state.phase === "idle" && (
-          <div className="flex flex-wrap gap-2 text-xs opacity-70">
-            <span className="pt-1">Try:</span>
-            {EXAMPLES.map((ex) => (
-              <button
-                key={ex.label}
-                type="button"
-                onClick={() => runExample(ex.repo, ex.pr)}
-                className="rounded-full border border-white/10 px-2 py-1 transition hover:bg-white/5"
-              >
-                {ex.label}
-              </button>
-            ))}
-          </div>
-        )}
       </form>
 
       {state.phase !== "idle" && (
