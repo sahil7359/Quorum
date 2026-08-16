@@ -164,23 +164,31 @@ def pull_request_review_write(
 def add_comment_to_pending_review(
     owner: str,
     repo: str,
-    pullNumber: int,  # noqa: N803
+    pullNumber: int,  # noqa: N803 - GitHub's parameter name
     body: str,
     path: str,
     line: int,
+    subjectType: str,  # noqa: N803 - GitHub's parameter name
     side: str | None = None,
 ) -> dict[str, Any]:
+    # why subjectType is required here with no default: the real server requires it (enum
+    # FILE|LINE), which the documented schema this fake was first written against did not show.
+    # A client that forgot to send it -- as the original post_review_comment did -- must fail
+    # against this fake exactly as it failed live, or the test would pass on a broken client.
     _fail_if_erroring()
     if not pending_review_open:
         raise ValueError("no pending review to attach a comment to")
-    posted_comments.append({"path": path, "line": line, "body": body})
+    posted_comments.append({"path": path, "line": line, "body": body, "subjectType": subjectType})
     return {"id": f"comment-{len(posted_comments)}"}
 
 
 @server.tool()
-def add_issue_comment(owner: str, repo: str, issueNumber: int, body: str) -> str:  # noqa: N803
+def add_issue_comment(owner: str, repo: str, issue_number: int, body: str) -> str:
+    # why issue_number (snake_case), not issueNumber: the real server takes snake_case for this
+    # tool even though sibling tools take camelCase (pullNumber). Found live; mirrored here so
+    # the client can't regress to the wrong casing without a test noticing.
     _fail_if_erroring()
-    posted_comments.append({"issue": issueNumber, "body": body})
+    posted_comments.append({"issue": issue_number, "body": body})
     return f"issue-comment-{len(posted_comments)}"
 
 

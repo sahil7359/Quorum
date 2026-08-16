@@ -61,6 +61,25 @@ class Settings(BaseSettings):
         "run,-i,--rm,-e,GITHUB_PERSONAL_ACCESS_TOKEN,ghcr.io/github/github-mcp-server"
     )
 
+    # --- GitHub App (the write path) ----------------------------------------
+    # why an App, not the PAT above, for writes: a PAT posts under a human's identity with
+    #      their full account scope; an App installation is scoped to only the repos it's
+    #      installed on and only the permissions granted, and its token expires in ~1 hour.
+    #      When these three are set, the composition root mints an installation token and uses
+    #      it as the MCP server's token instead of github_token. Empty by default -- the read
+    #      path works on the PAT alone, and nothing here fails if writes are never configured.
+    github_app_id: str = ""
+    github_app_installation_id: str = ""
+    github_app_private_key_path: str = ""
+
+    @property
+    def github_app_configured(self) -> bool:
+        return bool(
+            self.github_app_id
+            and self.github_app_installation_id
+            and self.github_app_private_key_path
+        )
+
     # --- Persistence --------------------------------------------------------
     # why: plain "postgresql://", not "postgresql+psycopg://" -- the +driver suffix is
     #      SQLAlchemy convention. There is no SQLAlchemy anywhere in this codebase, only

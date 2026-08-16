@@ -7,6 +7,59 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 16 — the write path, finally posted for real, and it wasn't the shape we'd written
+
+Everything through Phase 15 was read-only. The write path -- posting a review comment back to a
+PR -- had been *built* since Phase 5 (the three-call pending-review sequence, the
+approval-authorisation guard) but **never actually run against GitHub**, on purpose: the module
+docstring said so plainly, because the only honest way to test a write is to post a real,
+visible comment on a real repo, and that needs a throwaway repo chosen deliberately.
+
+**A GitHub App, not a PAT, authenticates the writes.** A personal access token posts under a
+human's identity with their whole account's scope; a review bot doing that is a blast radius a
+GitHub App is designed to shrink. `app/infrastructure/github_app.py` mints short-lived
+installation tokens -- sign a JWT with the App's private key (RS256), exchange it for an
+installation token that expires in an hour, use that as the MCP server's token. The private key
+lives in a gitignored `secrets/` file and never reaches argv; the minted token is what travels
+onward. Unit-tested with a throwaway RSA key and a mocked GitHub (the JWT claims and the error
+paths are the parts that can actually be wrong), then verified live by minting a real token.
+
+**The first real write immediately proved the point of never trusting an unrun path: the write
+shape we'd carefully written against the documented schema was wrong in two places.** Posting to
+a real PR in the throwaway repo:
+
+1. `add_comment_to_pending_review` failed with *"missing required parameter: subjectType"*. The
+   real server requires `subjectType` (enum `FILE`|`LINE`); the documented schema the client was
+   written against never showed it. A finding always targets a line, so `LINE` is always right --
+   but the client had never sent it, and no test caught that because the fake server didn't
+   require it either.
+2. Then `add_issue_comment` failed with *"missing required parameter: issue_number"*. This tool
+   takes `issue_number` in **snake_case**, while its sibling tools on the *same server*
+   (`pull_request_read`, `add_comment_to_pending_review`) take **camelCase** (`pullNumber`). The
+   client sent `issueNumber`, matching the siblings, and was wrong.
+
+Both fixed against the real schema (fetched live from the server's own `tools/list`), and the
+fake test server updated to require `subjectType` and to take `issue_number` -- so the client
+cannot regress to either mistake without a test going red, the same discipline the read-path
+tool-name corrections got in Phase 6. After the fixes, a clean run posted both an inline review
+comment (attached to `app.py:13`, the line that logs a card number, rendered with its grounding
+citation) and a summary comment, verified via the API to have actually landed and to be authored
+by `quorum-reviewer-sahil[bot]` -- the App identity, not the human account. The
+approval-authorisation guard was in the path the whole time: the write methods take the
+`Approval` as an argument, so the comment could not have posted without one.
+
+The lesson is the exact one the module docstring had been *predicting* about itself for ten
+phases: a write path written against documentation and covered by a fake that agrees with the
+documentation is verified against the documentation, not against the server. It stayed plausibly
+correct and actually wrong until a real byte hit the real API -- the same shape of gap as the
+frontend CRLF bug one phase earlier, in a completely different layer.
+
+One honest limitation recorded, not hidden: the installation token expires in ~1 hour, and the
+MCP server process holds whichever token it was started with. A review posted more than an hour
+after the server connected would fail on an expired token; a long-running deployment needs to
+re-mint and reconnect, which the on-demand demo path (`scripts/write_demo.py`, fresh token per
+run) sidesteps rather than solves.
+
 ## Phase 15 — the frontend, and a CRLF bug no unit test could have caught
 
 The API had been the whole product through Phase 14 -- `frontend/` was an empty directory. This

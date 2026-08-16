@@ -27,6 +27,8 @@ build/
 !.env.example
 *.pem
 *.key
+# GitHub App private key + anything else credential-shaped lives here, never committed.
+secrets/
 
 # Local model + retrieval caches (large, reproducible)
 .cache/

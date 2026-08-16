@@ -33,12 +33,15 @@ independently, confirming the query syntax and response shape before building th
 pipeline on top of it.
 
 ``post_review_comment``'s three-call write sequence (``pull_request_review_write`` create ->
-``add_comment_to_pending_review`` -> ``pull_request_review_write`` submit_pending) is written
-against the real server's *documented* input schema, discovered from the same live
-``tools/list`` response, but **has not itself been called against the real server** -- doing
-so would post a real, visible comment on someone else's repository, which is not something to
-do without deliberately choosing a throwaway PR to do it against. Treat the exact shape of
-``add_comment_to_pending_review``'s return value as unverified until it is.
+``add_comment_to_pending_review`` -> ``pull_request_review_write`` submit_pending) and
+``post_summary_comment`` are now **verified live**, authenticated by a GitHub App installation
+token (see ``app/infrastructure/github_app.py`` and ``scripts/write_demo.py``), posting a real
+inline review comment and a real summary comment to a throwaway PR. That first live write
+turned up two parameters the documented schema had not shown, both of which were fixed here:
+``add_comment_to_pending_review`` *requires* ``subjectType`` (enum FILE|LINE), and
+``add_issue_comment`` takes ``issue_number`` in snake_case while its sibling tools take
+camelCase (``pullNumber``). The write path was the last thing in this client to still be
+schema-guessed rather than observed; it no longer is.
 """
 
 from __future__ import annotations
@@ -377,6 +380,12 @@ class GitHubMcpClient:
                 "path": finding.file_path or "",
                 "line": finding.line_start or 1,
                 "side": "RIGHT",
+                # why "LINE", and why it's here at all: the real server *requires* subjectType
+                # (enum FILE|LINE), which the documented schema this client was first written
+                # against did not show -- found live, posting to a real PR, exactly the "shape
+                # unverified until a real write" caveat the module docstring called out. A
+                # finding always targets a specific line, so LINE is always right here.
+                "subjectType": "LINE",
             },
             write_authorised=True,
         )
@@ -408,9 +417,14 @@ class GitHubMcpClient:
         if not approvals:
             raise ApprovalRequiredError("summary comment requires at least one approval")
 
+        # why "issue_number" (snake_case), not "issueNumber": the real server's add_issue_comment
+        # takes snake_case, unlike pull_request_read/add_comment_to_pending_review which take
+        # camelCase (pullNumber). Inconsistent across tools on the same server -- found live,
+        # posting to a real PR, the same "unverified until a real write" caveat that the
+        # subjectType fix above came from.
         comment_id = await self._call(
             "add_issue_comment",
-            {"owner": repo.owner, "repo": repo.name, "issueNumber": number, "body": body},
+            {"owner": repo.owner, "repo": repo.name, "issue_number": number, "body": body},
             write_authorised=True,
         )
         return str(comment_id)

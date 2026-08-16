@@ -17,6 +17,10 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=3.1.1",
     "mcp>=1.9",
     "pgvector>=0.5.0",
+    # why declared explicitly though it arrives transitively: the GitHub App write path signs
+    #      its JWT with RS256, which needs the crypto extra. Depending on a transitive dep by
+    #      accident is exactly the "dependency nobody can account for" this list avoids.
+    "pyjwt[crypto]>=2.9",
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
