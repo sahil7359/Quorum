@@ -3,8 +3,9 @@
 Everything needed to run Quorum, test it, and present it. Written for two audiences: someone
 setting it up from scratch, and me walking an interviewer through it live.
 
-- **Live frontend:** _(set once the frontend service is deployed — see [Deploy the frontend](#deploy-the-frontend))_
-- **Live backend:** https://quorum-aka2.onrender.com (`/healthz`, `/readyz`, `POST /api/reviews`)
+- **Live frontend (dashboard):** _(set once the frontend service is deployed — see [Deploy the frontend](#6-deploy-the-frontend-detailed-runbook))_
+- **Live backend:** https://quorum-aka2.onrender.com — the base URL now returns a service
+  description; `/docs` is the Swagger UI; `/api/status`, `/api/reviews`, `POST /api/reviews`.
 - **Source:** https://github.com/sahil7359/Quorum
 
 ---
@@ -25,9 +26,11 @@ so that 'the agent cannot do X' is enforced by types and tests, not by hoping."*
 
 ## 2. The 60-second live demo
 
-1. Open the frontend.
-2. Click **python/mypy #21647** under "Try it — one click."
-3. Narrate the streaming steps as they fill in live:
+1. Open the frontend (a dashboard). Point at the **status bar** first: backend online, the
+   model in use, today's token budget — proof it's a live system, not a mockup.
+2. Click **python/mypy #21647** under "Run a review."
+3. Narrate the streaming steps as they fill in live, with the **process-log console** underneath
+   showing the raw events timestamped in real time:
    - **Indexing repository docs** — first review of a PR fetches and chunks the repo's docs
      (this is cached, so it only happens once per commit).
    - **Reading the diff** — "17 files changed, context scoped down 97%" — it AST-scopes the diff
@@ -38,6 +41,8 @@ so that 'the agent cannot do X' is enforced by types and tests, not by hoping."*
    - **Grounding and finalising** — "N findings survived citation checks." Some candidates get
      dropped here for failing to cite — that's the point.
 4. Each finding renders with its **severity, specialist, and the exact doc line it cites.**
+5. Point at the **Recent reviews** panel on the right — every completed review is there
+   (persisted in Postgres), expandable to its findings. Clicking a past one is instant.
 
 > **Warm it up first.** The *first* review of any PR indexes its docs (~30s) and runs the model
 > live. Click both examples once before presenting so they're cached and return instantly. On
@@ -141,22 +146,91 @@ uv run python -m eval.retrieval.gate
 
 ---
 
-## 6. Deploy the frontend
+## 6. Deploy the frontend (detailed runbook)
 
-The backend is already live. The frontend is defined as a second service in
-[`render.yaml`](render.yaml) but needs to be created once:
+The backend is already live. The frontend is defined as a second service (`quorum-web`) in
+[`render.yaml`](render.yaml); it just needs to be created once. Step by step:
 
-1. In the **Render dashboard** → your existing Quorum **Blueprint** → **Sync** (or
-   New → Blueprint → pick the repo). Render detects the new `quorum-web` service.
-2. It needs no secrets — `NEXT_PUBLIC_API_BASE` is auto-wired from the backend service's host.
-3. Deploy. When it's live, put its URL at the top of this file and in the README.
+1. **Render dashboard → Blueprints →** your existing Quorum blueprint **→ "Sync"**. (If you
+   never made a blueprint: **New → Blueprint → connect the `sahil7359/Quorum` repo**.) Render
+   reads `render.yaml` and detects the new `quorum-web` web service.
+2. **Approve the plan.** It's a Docker web service on the free tier. No secrets to enter —
+   `NEXT_PUBLIC_API_BASE` is auto-wired from the backend (`quorum`) service's own host, so the
+   frontend build points at the live backend automatically.
+3. **Deploy.** First build takes a few minutes (installs deps, runs `next build`). It's
+   already been verified to build and serve correctly as a container.
+4. When it shows **Live**, open its URL — you get the dashboard. Put that URL at the top of this
+   file and in the README so it's the front door.
 
-Full backend deploy details, credentials, and the known limitations (ingestion memory ceiling
-on the free tier, installation-token expiry) are in [`docs/Deploy.md`](docs/Deploy.md).
+> Why the frontend is a separate service, not part of the backend: the backend is a 512MB
+> Python container already carrying the ML runtime; the frontend is a static-ish Next build.
+> Keeping them separate means the UI can't be starved of memory by an ingestion run, and each
+> scales and redeploys on its own.
+
+Full backend deploy details, credentials, and known limitations (ingestion memory ceiling on
+the free tier, installation-token expiry) are in [`docs/Deploy.md`](docs/Deploy.md).
 
 ---
 
-## 7. Known limitations (state them before you're asked)
+## 7. How a review is routed, end to end (the detailed walkthrough)
+
+What actually happens between a click and a finding. This is the flow to narrate in a
+system-design round; the same path backs both the dashboard's SSE stream and the CLI demo.
+
+```
+Browser (dashboard)
+  │  POST /api/reviews {repo, pr_number}        ← no PR data in the URL, on purpose
+  ▼
+FastAPI  app/interface/api/app.py
+  │  parses owner/repo, opens a Server-Sent-Events stream
+  ▼
+ReviewService.review_stream   app/interface/review_service.py
+  │  1. cache check      — sha256(repo, pr, head_sha, config_hash). Hit → return instantly.
+  │  2. rate limit       — one global daily counter (QUORUM_LIVE_REVIEWS_PER_DAY). Cache hits skip it.
+  │  3. budget check     — daily token cap; if exhausted, serve the last cached review with a banner.
+  │  4. ingestion        — IngestionService: if this (repo, commit) has no chunks yet, discover the
+  │                        repo's markdown via GitHub code search, fetch each at the exact head_sha,
+  │                        chunk + embed + store. Cached after the first time.  →  emits ingestion.* events
+  ▼
+LangGraph pipeline   app/application/agents/  (each node streams a node.* event)
+  │
+  ├─ ingest       fetch the PR + unified diff via the GitHub MCP server; AST-scope the diff to the
+  │               enclosing function/class (not whole files) → "context scoped down 97%"
+  │
+  ├─ route        heuristics compute a FLOOR of specialists from the diff (correctness is always in;
+  │               source-without-tests adds test-coverage; risky patterns add security). The LLM reads
+  │               the diff and may only ADD specialists to that floor — never remove one. A diff that
+  │               says "security review not required" cannot talk the security specialist out of running.
+  │
+  ├─ specialists  for each chosen specialist: build a query, retrieve top-k doc chunks (dense bge-small
+  │               + BM25, fused by reciprocal-rank-fusion), prompt the model, get back CandidateFindings.
+  │               A CandidateFinding's chunk_id is `str | None` — untrusted model output.
+  │
+  └─ synthesise   CITE-OR-DROP. Each candidate becomes a real Finding only if its chunk_id names a chunk
+                  that (a) exists and (b) was actually shown to that specialist. Everything else is
+                  dropped, with a reason (no_citation / malformed / unknown / not-visible). → node.synthesise
+  ▼
+review.completed event  → the dashboard renders findings, each with the doc line it cites, and the
+                          review is written to the cache (so it shows up in history, instantly next time).
+
+  ─────────────────────────────────────────────────────────────────────────────
+  Write path (optional, human-in-the-loop, not on the hot path above):
+  a human approves a finding → post_review_comment posts it to the PR as an inline comment via a
+  GitHub App (quorum-reviewer-sahil[bot]). The write methods take the Approval as an argument, so an
+  unapproved post is unexpressible. See scripts/write_demo.py and test-repo PR #1.
+```
+
+**Three places to pause and point at during a design round:**
+- **Step 2–4 preflight order** — cache → rate limit → budget → ingest. Each is a cheap gate before
+  the expensive graph; the order is deliberate (never spend a token you can avoid).
+- **`route`** — the trust boundary. The diff is attacker-controlled; the router treats the model as
+  advisory-only over a heuristic floor.
+- **`synthesise`** — the thesis. `Finding` cannot be *constructed* without a `Citation`; the drop is
+  a type-system consequence, not a policy someone has to remember to apply.
+
+---
+
+## 8. Known limitations (state them before you're asked)
 
 - **First review of a repo is slow** (docs ingestion + live model); cached after that.
 - **Free-tier memory ceiling** caps how many docs are ingested per repo (see `docs/Deploy.md`).
