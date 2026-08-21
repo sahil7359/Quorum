@@ -35,6 +35,17 @@ export interface ReviewCompleted {
   posted_to_github: boolean;
 }
 
+export interface Status {
+  provider: string;
+  model: string;
+  config_hash: string;
+  budget: {
+    consumed: number | null;
+    limit: number | null;
+    exhausted: boolean | null;
+  };
+}
+
 export interface IngestionStarted {
   repo: string;
   commit_sha: string;

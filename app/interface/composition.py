@@ -105,6 +105,8 @@ service = ReviewService(
     config_hash=f"{settings.prompt_version}:{settings.chunker_version}",
     max_diff_lines=settings.max_diff_lines,
     retrieval_top_k=settings.retrieval_top_k,
+    provider=settings.llm_provider,
+    model_label=settings.specialist_model,
 )
 
 

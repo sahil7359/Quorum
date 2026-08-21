@@ -1,13 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { EventLog } from "@/components/EventLog";
 import { FindingCard } from "@/components/FindingCard";
+import { HistoryPanel } from "@/components/HistoryPanel";
 import { ProgressSteps } from "@/components/ProgressSteps";
+import { StatusBar } from "@/components/StatusBar";
 import { useReview } from "@/hooks/useReview";
+import { fetchRecentReviews } from "@/lib/api";
+import type { ReviewCompleted } from "@/lib/types";
 
 // Curated demo PRs -- real merged pull requests on repos with real documentation, so a review
-// has something to ground findings in. The first one is the headline demo. Both are from the
+// has something to ground findings in. The first is the headline demo. Both are from the
 // Phase 6 golden set, so they're known to carry substantive change worth reviewing.
 const EXAMPLES = [
   {
@@ -25,9 +30,16 @@ const EXAMPLES = [
 ];
 
 export function ReviewView() {
-  const { state, run, reset } = useReview();
+  const [history, setHistory] = useState<ReviewCompleted[]>([]);
+  const refreshHistory = useCallback(() => {
+    void fetchRecentReviews(20).then(setHistory);
+  }, []);
+
+  const { state, run, reset } = useReview(refreshHistory);
   const [repo, setRepo] = useState("");
   const [prNumber, setPrNumber] = useState("");
+
+  useEffect(() => refreshHistory(), [refreshHistory]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,124 +55,140 @@ export function ReviewView() {
   };
 
   const busy = state.phase === "streaming";
+  const active = state.phase !== "idle";
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Quorum</h1>
-        <p className="text-sm opacity-60">
-          Reviews a real pull request — citation-backed findings, or none, never invented.
-        </p>
+    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 p-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Quorum</h1>
+          <p className="text-sm opacity-60">
+            Reviews a real pull request — citation-backed findings, or none, never invented.
+          </p>
+        </div>
+        <StatusBar />
       </header>
 
-      {state.phase === "idle" && (
-        <section className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-          <div>
-            <h2 className="text-sm font-medium">Try it — one click</h2>
-            <p className="text-xs opacity-50">
-              Watch the review stream live: ingest the diff, route to specialists, ground every
-              finding in the repo&apos;s own docs. First run of a PR indexes its docs (~30s);
-              after that it&apos;s cached and instant.
+      <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+        {/* Left column: run a review + live activity */}
+        <section className="flex flex-col gap-4">
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <h2 className="text-sm font-medium">Run a review</h2>
+            <p className="mt-0.5 text-xs opacity-50">
+              One click on an example, or any public PR. First run of a PR indexes its docs
+              (~30s); after that it&apos;s cached and instant.
             </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {EXAMPLES.map((ex) => (
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {EXAMPLES.map((ex) => (
+                <button
+                  key={ex.label}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => runExample(ex.repo, ex.pr)}
+                  className="rounded-lg border border-white/10 p-3 text-left transition hover:bg-white/5 disabled:opacity-50"
+                >
+                  <span className="text-sm font-medium">{ex.label}</span>
+                  <span className="mt-1 block text-xs opacity-60">{ex.blurb}</span>
+                </button>
+              ))}
+            </div>
+
+            <form onSubmit={submit} className="mt-3 flex gap-2">
+              <input
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="owner/repo"
+                disabled={busy}
+                className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/30 disabled:opacity-50"
+              />
+              <input
+                value={prNumber}
+                onChange={(e) => setPrNumber(e.target.value)}
+                placeholder="PR #"
+                inputMode="numeric"
+                disabled={busy}
+                className="w-24 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/30 disabled:opacity-50"
+              />
               <button
-                key={ex.label}
-                type="button"
-                onClick={() => runExample(ex.repo, ex.pr)}
-                className="rounded-lg border border-white/10 p-3 text-left transition hover:bg-white/5"
+                type="submit"
+                disabled={busy}
+                className="rounded-lg border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium transition hover:bg-white/15 disabled:opacity-50"
               >
-                <span className="text-sm font-medium">{ex.label}</span>
-                <span className="mt-1 block text-xs opacity-60">{ex.blurb}</span>
+                {busy ? "Reviewing…" : "Review"}
               </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <form onSubmit={submit} className="flex flex-col gap-2">
-        {state.phase === "idle" && (
-          <label className="text-xs opacity-50">…or review any public PR:</label>
-        )}
-        <div className="flex gap-2">
-          <input
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-            placeholder="owner/repo"
-            disabled={busy}
-            className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/30 disabled:opacity-50"
-          />
-          <input
-            value={prNumber}
-            onChange={(e) => setPrNumber(e.target.value)}
-            placeholder="PR #"
-            inputMode="numeric"
-            disabled={busy}
-            className="w-24 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/30 disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-lg border border-white/10 bg-white/10 px-4 py-2 text-sm font-medium transition hover:bg-white/15 disabled:opacity-50"
-          >
-            {busy ? "Reviewing…" : "Review"}
-          </button>
-        </div>
-      </form>
-
-      {state.phase !== "idle" && (
-        <section className="flex flex-col gap-6">
-          <div className="rounded-lg border border-white/10 p-4">
-            <ProgressSteps state={state} />
+            </form>
           </div>
 
-          {state.phase === "error" && (
-            <p className="rounded-lg border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-300">
-              {state.error}
-            </p>
-          )}
-
-          {state.result && (
+          {active && (
             <div className="flex flex-col gap-4">
-              {state.result.error && (
-                <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-300">
-                  {state.result.error}
+              <div className="rounded-lg border border-white/10 p-4">
+                <ProgressSteps state={state} />
+              </div>
+
+              <EventLog log={state.log} />
+
+              {state.phase === "error" && (
+                <p className="rounded-lg border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-300">
+                  {state.error}
                 </p>
               )}
 
-              {state.result.diff_truncated && (
-                <p className="text-xs opacity-50">
-                  Note: this diff was too large and was truncated before review.
-                </p>
+              {state.result && (
+                <div className="flex flex-col gap-4">
+                  {state.result.error && (
+                    <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-300">
+                      {state.result.error}
+                    </p>
+                  )}
+                  {state.result.diff_truncated && (
+                    <p className="text-xs opacity-50">
+                      Note: this diff was too large and was truncated before review.
+                    </p>
+                  )}
+                  {state.result.findings.length === 0 && !state.result.error ? (
+                    <p className="text-sm opacity-60">
+                      No findings survived citation checks — either nothing worth flagging, or
+                      nothing the specialists could ground in the repo&apos;s own docs.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-3">
+                      {state.result.findings.map((f) => (
+                        <FindingCard key={f.finding_id} finding={f} />
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
 
-              {state.result.findings.length === 0 && !state.result.error ? (
-                <p className="text-sm opacity-60">
-                  No findings survived citation checks — either nothing worth flagging, or
-                  nothing the specialists could ground in the repo&apos;s own docs.
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {state.result.findings.map((f) => (
-                    <FindingCard key={f.finding_id} finding={f} />
-                  ))}
-                </ul>
+              {(state.phase === "done" || state.phase === "error") && (
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="self-start text-xs underline opacity-60 hover:opacity-100"
+                >
+                  Clear
+                </button>
               )}
             </div>
           )}
+        </section>
 
-          {(state.phase === "done" || state.phase === "error") && (
+        {/* Right column: history */}
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium">Recent reviews</h2>
             <button
               type="button"
-              onClick={reset}
-              className="self-start text-xs underline opacity-60 hover:opacity-100"
+              onClick={refreshHistory}
+              className="text-xs opacity-50 underline hover:opacity-100"
             >
-              Start another review
+              refresh
             </button>
-          )}
+          </div>
+          <HistoryPanel reviews={history} />
         </section>
-      )}
+      </div>
     </main>
   );
 }

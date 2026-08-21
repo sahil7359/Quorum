@@ -58,6 +58,11 @@ class ReviewService:
     config_hash: str
     max_diff_lines: int
     retrieval_top_k: int
+    # Display-only, for the dashboard's status panel. Empty in tests; the composition root
+    # fills them from Settings. They never touch review logic -- purely "what is this instance
+    # configured as", surfaced so the UI doesn't have to guess.
+    provider: str = ""
+    model_label: str = ""
     # why optional: every test-built service uses a retriever that needs no ingestion step
     # (FakeRetriever, or a store pre-populated directly). Only the real composition root,
     # reviewing repos nobody has pre-ingested, needs this -- see ingestion_service.py.

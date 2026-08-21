@@ -1,4 +1,4 @@
-import type { ReviewEvent } from "./types";
+import type { ReviewCompleted, ReviewEvent, Status } from "./types";
 
 // why the scheme is added if missing: Render's blueprint wires this from the
 // backend service's `host` property (see render.yaml), which is a bare
@@ -9,9 +9,34 @@ function normalizeBase(raw: string): string {
   return /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
 }
 
-const API_BASE = normalizeBase(process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000");
+export const API_BASE = normalizeBase(
+  process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000",
+);
 
 export class ReviewRequestError extends Error {}
+
+/** The status snapshot for the dashboard's header. Never throws -- a status panel that can't
+ * render is worse than one showing "unknown", so callers get null on any failure. */
+export async function fetchStatus(): Promise<Status | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/status`);
+    if (!res.ok) return null;
+    return (await res.json()) as Status;
+  } catch {
+    return null;
+  }
+}
+
+/** Recent reviews, newest first, for the history panel. Empty on any failure. */
+export async function fetchRecentReviews(limit = 20): Promise<ReviewCompleted[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/reviews?limit=${limit}`);
+    if (!res.ok) return [];
+    return (await res.json()) as ReviewCompleted[];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Streams a review over SSE. `fetch` + a manual reader, not the browser's

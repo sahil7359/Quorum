@@ -46,6 +46,7 @@ def make_app(
     model: FakeChatModel | None = None,
     rate_limit: int = 1000,
     budget_limit: int = 1_000_000,
+    cache: SqliteReviewCache | None = None,
 ) -> httpx.ASGITransport:
     clock = FrozenClock()
     model = model or FakeChatModel(
@@ -56,7 +57,7 @@ def make_app(
         route_model=model,
         specialist_model=model,
         retriever=FakeRetriever(),
-        cache=SqliteReviewCache(),
+        cache=cache or SqliteReviewCache(),
         budget=SqliteBudgetTracker(limit=budget_limit, clock=clock),
         rate_limiter=SqliteRateLimiter(limit=rate_limit, clock=clock),
         clock=clock,
@@ -65,6 +66,8 @@ def make_app(
         config_hash="test-config-hash",
         max_diff_lines=1500,
         retrieval_top_k=5,
+        provider="ollama",
+        model_label="llama3.1:8b",
     )
     return httpx.ASGITransport(app=create_app(service))
 
@@ -126,6 +129,52 @@ class TestHealthAndReadiness:
             response = await client.get("/readyz")
         assert response.status_code == 200
         assert response.json() == {"status": "ready"}
+
+    async def test_root_describes_the_service_instead_of_404ing(self) -> None:
+        """The base URL is what people paste into a browser first; a bare 404 there reads as
+        'nothing deployed' even on a healthy service."""
+        async with httpx.AsyncClient(transport=make_app(), base_url="http://test") as client:
+            response = await client.get("/")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["service"] == "Quorum"
+        assert "/api/reviews" in str(body["endpoints"])
+
+
+class TestStatusAndHistory:
+    async def test_status_reports_provider_and_budget(self) -> None:
+        async with httpx.AsyncClient(transport=make_app(), base_url="http://test") as client:
+            response = await client.get("/api/status")
+        assert response.status_code == 200
+        body = response.json()
+        assert "provider" in body
+        assert body["budget"]["limit"] is not None
+
+    async def test_recent_reviews_is_empty_then_lists_a_completed_review(self) -> None:
+        cache = SqliteReviewCache()
+        transport = make_app(cache=cache)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            empty = await client.get("/api/reviews")
+            assert empty.status_code == 200
+            assert empty.json() == []
+
+            # Run a real review through the same service so it lands in the cache.
+            async with client.stream(
+                "POST", "/api/reviews", json={"repo": "acme/widget", "pr_number": 42}
+            ) as response:
+                await response.aread()
+
+            listed = await client.get("/api/reviews")
+        assert listed.status_code == 200
+        rows = listed.json()
+        assert len(rows) == 1
+        assert rows[0]["repo"] == "acme/widget"
+        assert rows[0]["pr_number"] == 42
+
+    async def test_recent_reviews_caps_the_limit(self) -> None:
+        async with httpx.AsyncClient(transport=make_app(), base_url="http://test") as client:
+            response = await client.get("/api/reviews", params={"limit": 9999})
+        assert response.status_code == 200
 
 
 class TestPostReview:

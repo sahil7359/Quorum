@@ -65,6 +65,28 @@ def create_app(
         allow_headers=["Content-Type", "Idempotency-Key"],
     )
 
+    @app.get("/")
+    async def root() -> dict[str, Any]:
+        """A friendly landing for anyone who opens the API's base URL directly.
+
+        why this exists: the base URL is what people paste into a browser first, and a bare
+        404 there reads as "nothing is deployed" even when the service is perfectly healthy.
+        This says what the service is and points at the human UI and the docs.
+        """
+        return {
+            "service": "Quorum",
+            "what": "A supervisor agent that reviews pull requests with citation-backed findings.",
+            "endpoints": {
+                "health": "/healthz",
+                "readiness": "/readyz",
+                "status": "/api/status",
+                "recent_reviews": "/api/reviews",
+                "start_review": "POST /api/reviews {repo, pr_number}",
+                "api_docs": "/docs",
+            },
+            "source": "https://github.com/sahil7359/Quorum",
+        }
+
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         """Liveness: the process can answer HTTP at all.
@@ -91,6 +113,39 @@ def create_app(
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"budget store unreachable: {exc}") from exc
         return {"status": "ready"}
+
+    @app.get("/api/status")
+    async def status() -> dict[str, Any]:
+        """A snapshot for the dashboard's status panel: what this instance is, and its budget.
+
+        Degrades rather than 500s if the budget store is briefly unreachable -- a status panel
+        that can't render because one number is missing is worse than one showing the number as
+        unknown.
+        """
+        budget: dict[str, Any]
+        try:
+            state = await service.budget.state()
+            budget = {
+                "consumed": state.consumed,
+                "limit": state.limit,
+                "exhausted": state.exhausted,
+            }
+        except Exception:
+            budget = {"consumed": None, "limit": None, "exhausted": None}
+        return {
+            "provider": service.provider,
+            "model": service.model_label,
+            "config_hash": service.config_hash,
+            "budget": budget,
+        }
+
+    @app.get("/api/reviews")
+    async def list_reviews(limit: int = 20) -> list[dict[str, Any]]:
+        """Recent reviews, newest first -- the dashboard's history. Bounded so a caller cannot
+        ask for the whole table."""
+        capped = max(1, min(limit, 100))
+        reviews = await service.cache.list_recent(capped)
+        return [review_event(r) for r in reviews]
 
     @app.post("/api/reviews")
     async def post_review(

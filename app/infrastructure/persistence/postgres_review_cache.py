@@ -82,6 +82,17 @@ class PostgresReviewCache:
             row = cursor.fetchone()
         return _review_from_json(row["payload"]) if row is not None else None
 
+    async def list_recent(self, limit: int) -> list[Review]:
+        return await asyncio.to_thread(self._list_recent_sync, limit)
+
+    def _list_recent_sync(self, limit: int) -> list[Review]:
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT payload FROM review_cache ORDER BY created_at DESC LIMIT %s", (limit,)
+            )
+            rows = cursor.fetchall()
+        return [_review_from_json(row["payload"]) for row in rows]
+
     async def put(self, cache_key: str, review: Review) -> None:
         await asyncio.to_thread(self._put_sync, cache_key, review)
 

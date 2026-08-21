@@ -74,6 +74,13 @@ class SqliteReviewCache:
             return None
         return _review_from_json(json.loads(row["payload"]))
 
+    async def list_recent(self, limit: int) -> list[Review]:
+        rows = self._connection.execute(
+            "SELECT payload FROM review_cache ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_review_from_json(json.loads(row["payload"])) for row in rows]
+
     async def put(self, cache_key: str, review: Review) -> None:
         # why: INSERT OR REPLACE rather than INSERT -- a config change that invalidates a key
         #      (a new prompt version, say) produces a *different* cache_key naturally, so a

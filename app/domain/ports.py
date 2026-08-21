@@ -215,6 +215,15 @@ class ReviewCachePort(Protocol):
         """
         ...
 
+    async def list_recent(self, limit: int) -> Sequence[Review]:
+        """The most recently cached reviews, newest first, for a history view.
+
+        why: the cache already holds every completed review keyed by config; a dashboard that
+        shows "what has this thing reviewed" is a read over that same table, not a new store.
+        Distinct from ``get_latest`` (one PR) -- this is across all PRs.
+        """
+        ...
+
 
 @runtime_checkable
 class BudgetPort(Protocol):
