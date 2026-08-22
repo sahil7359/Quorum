@@ -88,8 +88,10 @@ export function useReview(onComplete?: () => void) {
       });
 
       void (async () => {
+        let completed = false;
         try {
           for await (const evt of streamReview(repo, prNumber, controller.signal)) {
+            if (evt.event === "review.completed") completed = true;
             setState((prev) => {
               const line: LogLine = { t: Date.now(), event: evt.event, detail: describe(evt) };
               const log = line.detail ? [...prev.log, line] : prev.log;
@@ -112,6 +114,22 @@ export function useReview(onComplete?: () => void) {
                   return { ...prev, log };
               }
             });
+          }
+          // why this branch matters: if the stream *ends* without a review.completed event --
+          // which is exactly what happens when the backend is killed mid-review (e.g. an
+          // out-of-memory restart on a small host during doc ingestion) -- the loop just
+          // finishes and, without this, the UI sits on "Reviewing..." forever. Surface it as
+          // an error instead of hanging.
+          if (!completed && !controller.signal.aborted) {
+            setState((prev) => ({
+              ...prev,
+              phase: "error",
+              error:
+                "The review stopped before finishing — the server closed the connection. On a " +
+                "small free-tier host this usually means it ran out of memory while indexing a " +
+                "large repository's docs. Try a smaller repo, or a PR that's already been reviewed.",
+              log: [...prev.log, { t: Date.now(), event: "error", detail: "stream ended early" }],
+            }));
           }
           onComplete?.();
         } catch (err) {
