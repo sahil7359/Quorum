@@ -13,9 +13,6 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Self
 
-import psycopg
-from psycopg.rows import dict_row
-
 from app.domain.entities import Citation, Finding, RepoRef, Review, RoutingDecision
 from app.domain.values import (
     ChunkId,
@@ -26,6 +23,7 @@ from app.domain.values import (
     Severity,
     SpecialistKind,
 )
+from app.infrastructure.persistence.reconnecting import ReconnectingConnection
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS review_cache (
@@ -46,7 +44,7 @@ CREATE INDEX IF NOT EXISTS review_cache_repo_pr_idx
 class PostgresReviewCache:
     """Adapter satisfying ``ReviewCachePort``."""
 
-    def __init__(self, connection: psycopg.Connection[Any]) -> None:
+    def __init__(self, connection: ReconnectingConnection) -> None:
         self._connection = connection
 
     @classmethod
@@ -55,7 +53,7 @@ class PostgresReviewCache:
 
     @classmethod
     def _connect_sync(cls, dsn: str) -> Self:
-        connection = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        connection = ReconnectingConnection(dsn)
         with connection.cursor() as cursor:
             cursor.execute(SCHEMA)
         return cls(connection)

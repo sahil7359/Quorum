@@ -20,10 +20,20 @@ from typing import Any, Self
 
 import psycopg
 from pgvector.psycopg import register_vector
-from psycopg.rows import dict_row
 
 from app.domain.entities import Chunk, RepoRef, ScoredChunk
 from app.domain.values import ChunkId, ChunkLocator
+from app.infrastructure.persistence.reconnecting import ReconnectingConnection
+
+
+def _register_pgvector(conn: psycopg.Connection[Any]) -> None:
+    # why the extension is (idempotently) ensured here, not just in SCHEMA: this runs on every
+    # (re)connect, and register_vector needs the `vector` type to already exist to look up its
+    # OID. On a reconnect the extension is long since created, but ensuring it keeps the
+    # callback self-contained and correct on a brand-new database too.
+    conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    register_vector(conn)
+
 
 SCHEMA = """
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -59,7 +69,7 @@ class PostgresChunkStore:
     ``postgres_audit.py``'s module docstring for why (Windows event-loop policy conflict with
     the async MCP stdio tests)."""
 
-    def __init__(self, connection: psycopg.Connection[Any]) -> None:
+    def __init__(self, connection: ReconnectingConnection) -> None:
         self._connection = connection
 
     @classmethod
@@ -68,10 +78,12 @@ class PostgresChunkStore:
 
     @classmethod
     def _connect_sync(cls, dsn: str) -> Self:
-        connection = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        # configure=_register_pgvector runs on every (re)connect, so a reopened connection has
+        # the vector type adapter registered again -- otherwise the first query after a
+        # reconnect would send a Python list where a vector is expected and fail.
+        connection = ReconnectingConnection(dsn, configure=_register_pgvector)
         with connection.cursor() as cursor:
             cursor.execute(SCHEMA)
-        register_vector(connection)
         return cls(connection)
 
     async def upsert(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> int:

@@ -34,11 +34,9 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Self
 
-import psycopg
-from psycopg.rows import dict_row
-
 from app.domain.entities import Approval, AuditEvent
 from app.domain.values import ApprovalAction, AuditAction, FindingId, RunId
+from app.infrastructure.persistence.reconnecting import ReconnectingConnection
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -70,7 +68,7 @@ CREATE RULE audit_events_no_delete AS ON DELETE TO audit_events DO INSTEAD NOTHI
 class PostgresAuditLog:
     """Adapter satisfying ``AuditPort``. Append-only by database rule, not by discipline."""
 
-    def __init__(self, connection: psycopg.Connection[Any]) -> None:
+    def __init__(self, connection: ReconnectingConnection) -> None:
         self._connection = connection
 
     @classmethod
@@ -81,8 +79,9 @@ class PostgresAuditLog:
     def _connect_sync(cls, dsn: str) -> Self:
         # why: autocommit -- each audit append is its own durable fact the instant it is
         #      written, not something that should wait behind an application-level
-        #      transaction boundary this class does not otherwise manage.
-        connection = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+        #      transaction boundary this class does not otherwise manage. (autocommit +
+        #      dict_row are set inside ReconnectingConnection.)
+        connection = ReconnectingConnection(dsn)
         with connection.cursor() as cursor:
             cursor.execute(SCHEMA)
         return cls(connection)

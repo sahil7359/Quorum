@@ -7,12 +7,10 @@ when the WHERE clause is the only thing enforcing the limit.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Self
-
-import psycopg
-from psycopg.rows import dict_row
+from typing import Self
 
 from app.domain.ports import ClockPort
+from app.infrastructure.persistence.reconnecting import ReconnectingConnection
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS live_review_counter (
@@ -25,9 +23,7 @@ CREATE TABLE IF NOT EXISTS live_review_counter (
 class PostgresRateLimiter:
     """Adapter satisfying ``RateLimiterPort``."""
 
-    def __init__(
-        self, *, limit: int, clock: ClockPort, connection: psycopg.Connection[Any]
-    ) -> None:
+    def __init__(self, *, limit: int, clock: ClockPort, connection: ReconnectingConnection) -> None:
         self._limit = limit
         self._clock = clock
         self._connection = connection
@@ -38,8 +34,8 @@ class PostgresRateLimiter:
         return cls(limit=limit, clock=clock, connection=connection)
 
     @staticmethod
-    def _connect_sync(dsn: str) -> psycopg.Connection[Any]:
-        connection = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+    def _connect_sync(dsn: str) -> ReconnectingConnection:
+        connection = ReconnectingConnection(dsn)
         with connection.cursor() as cursor:
             cursor.execute(SCHEMA)
         return connection

@@ -9,11 +9,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Self
 
-import psycopg
-from psycopg.rows import dict_row
-
 from app.domain.ports import ClockPort
 from app.domain.values import BudgetState, RunId, TokenUsage
+from app.infrastructure.persistence.reconnecting import ReconnectingConnection
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS token_usage (
@@ -37,9 +35,7 @@ CREATE INDEX IF NOT EXISTS token_usage_date_idx ON token_usage (usage_date);
 class PostgresBudgetTracker:
     """Adapter satisfying ``BudgetPort``."""
 
-    def __init__(
-        self, *, limit: int, clock: ClockPort, connection: psycopg.Connection[Any]
-    ) -> None:
+    def __init__(self, *, limit: int, clock: ClockPort, connection: ReconnectingConnection) -> None:
         self._limit = limit
         self._clock = clock
         self._connection = connection
@@ -50,8 +46,8 @@ class PostgresBudgetTracker:
         return cls(limit=limit, clock=clock, connection=connection)
 
     @staticmethod
-    def _connect_sync(dsn: str) -> psycopg.Connection[Any]:
-        connection = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
+    def _connect_sync(dsn: str) -> ReconnectingConnection:
+        connection = ReconnectingConnection(dsn)
         with connection.cursor() as cursor:
             cursor.execute(SCHEMA)
         return connection

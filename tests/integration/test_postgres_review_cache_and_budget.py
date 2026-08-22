@@ -88,6 +88,28 @@ def a_finding() -> Finding:
     )
 
 
+class TestConnectionResilience:
+    async def test_it_reconnects_after_the_connection_is_closed_underneath_it(self) -> None:
+        """Found live: Neon closes an idle connection and every query then fails with 'the
+        connection is closed' until the process restarts. Simulate exactly that -- close the
+        underlying psycopg connection out from under the adapter -- and assert the next
+        operation still succeeds rather than raising."""
+        cache = await PostgresReviewCache.connect(DSN)
+        review = a_review(findings=(a_finding(),), head_sha="reconnect")
+        key = f"reconnect-{review.run_id}"
+        await cache.put(key, review)
+
+        # Reach in and close the real connection, the way Neon's idle timeout does.
+        cache._connection._conn.close()
+        assert cache._connection._conn.closed
+
+        # The adapter should transparently reopen and serve the row, not raise.
+        restored = await cache.get(key)
+        assert restored is not None
+        assert restored.run_id == review.run_id
+        await cache.close()
+
+
 class TestReviewCache:
     async def test_a_cached_review_round_trips(self) -> None:
         cache = await PostgresReviewCache.connect(DSN)
