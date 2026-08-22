@@ -11,21 +11,25 @@ import { useReview } from "@/hooks/useReview";
 import { fetchRecentReviews } from "@/lib/api";
 import type { ReviewCompleted } from "@/lib/types";
 
-// Curated demo PRs -- real merged pull requests on repos with real documentation, so a review
-// has something to ground findings in. The first is the headline demo. Both are from the
-// Phase 6 golden set, so they're known to carry substantive change worth reviewing.
+// Curated demo PRs -- real merged pull requests on repos with real documentation.
+//
+// The first is already indexed and cached, so on the hosted (memory-constrained) demo it
+// returns instantly and reliably. The second is a full first-time review that indexes the
+// repo's docs live -- it's the richer showcase (real findings with citations), and it runs
+// great locally or on a host with adequate memory; on the free 512MB tier it may exceed memory
+// while indexing and stop early (the UI says so rather than hanging). See DEMO.md.
 const EXAMPLES = [
+  {
+    label: "psf/black #5280",
+    repo: "psf/black",
+    pr: 5280,
+    blurb: "already indexed — returns instantly (best for the hosted demo)",
+  },
   {
     label: "python/mypy #21647",
     repo: "python/mypy",
     pr: 21647,
-    blurb: "35 new public symbols across 17 files — routes to all three specialists",
-  },
-  {
-    label: "psf/black #5237",
-    repo: "psf/black",
-    pr: 5237,
-    blurb: "a pickle-deserialisation change — trips the security heuristic",
+    blurb: "full first-time review, 5 findings — best run locally / with adequate memory",
   },
 ];
 

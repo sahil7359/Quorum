@@ -26,9 +26,20 @@ so that 'the agent cannot do X' is enforced by types and tests, not by hoping."*
 
 ## 2. The 60-second live demo
 
+> **Which surface to demo.** Two ways to show this, pick per setting:
+> - **Local (recommended for the full experience):** run backend + frontend on your laptop
+>   (section 4). Memory isn't constrained, so a *first-time* review of any repo works and you
+>   get the rich result — the mypy example returns **5 findings, each with a citation**. This is
+>   the impressive demo.
+> - **Hosted URL (proof it's really deployed):** the free 512MB tier can't index a large repo's
+>   docs from scratch (see [limitations](#8-known-limitations-state-them-before-youre-asked)), so
+>   on the hosted demo lead with the **already-cached** example (`psf/black #5280`) — it returns
+>   instantly and reliably. Use it to prove the deployment is live, then show the depth locally.
+
 1. Open the frontend (a dashboard). Point at the **status bar** first: backend online, the
    model in use, today's token budget — proof it's a live system, not a mockup.
-2. Click **python/mypy #21647** under "Run a review."
+2. Click the **first example** ("already indexed — returns instantly" on the hosted demo;
+   **python/mypy #21647** locally for the full 5-finding result).
 3. Narrate the streaming steps as they fill in live, with the **process-log console** underneath
    showing the raw events timestamped in real time:
    - **Indexing repository docs** — first review of a PR fetches and chunks the repo's docs
@@ -233,7 +244,16 @@ review.completed event  → the dashboard renders findings, each with the doc li
 ## 8. Known limitations (state them before you're asked)
 
 - **First review of a repo is slow** (docs ingestion + live model); cached after that.
-- **Free-tier memory ceiling** caps how many docs are ingested per repo (see `docs/Deploy.md`).
+- **The hosted free tier (512MB) can't index a large repo's docs from scratch.** fastembed's
+  ONNX runtime (~200MB) plus the app plus the indexing workload exceeds 512MB, so a *first-time*
+  review of a doc-heavy repo (mypy, black) runs the container out of memory and it restarts —
+  the dashboard surfaces this ("the server ran out of memory indexing…") rather than hanging.
+  **Cache hits are unaffected**, so the hosted demo leads with an already-indexed PR. The clean
+  fixes, both real and both deliberately not taken for a free demo: a paid tier with more RAM
+  (one config change, no code), or moving embeddings to a hosted API to drop the ~200MB from the
+  server. Running locally (laptop RAM) sidesteps it entirely — that's where the full,
+  findings-rich review lives. This is a *deployment-tier* limit, not a design flaw: the same
+  binary reviews any repo end-to-end given adequate memory.
 - **Finding quality is model-bound.** On a small model the specialists lean on generic
   security phrasing. The *grounding* guarantee holds regardless — that's the part that's
   engineered; the phrasing is the model's.

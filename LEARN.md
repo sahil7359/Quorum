@@ -7,6 +7,58 @@ rather than *why it changed*, see [`docs/AppFlow.md`](docs/AppFlow.md) and
 
 ---
 
+## Phase 17 — deploying the frontend, and three real bugs the live URL exposed
+
+The frontend and backend both built and passed CI; deploying them together and actually opening
+the URL turned up three failures nothing local could have — each only visible once real hosted
+infrastructure (a second Render service, a serverless database, a 512MB memory cap) was in the
+loop.
+
+**1. The frontend baked in a backend URL with no domain.** `render.yaml` wired
+`NEXT_PUBLIC_API_BASE` from the backend service via `fromService ... property: host`. That
+resolved to the bare service *name* (`quorum-aka2`), not the external hostname, so the client
+bundle called `https://quorum-aka2/api/...` and every request failed. `NEXT_PUBLIC_` values are
+inlined at *build* time, so this was frozen into the deployed JS — invisible until you watch the
+deployed page's network tab. Replaced the auto-wiring with the plain public URL; confirmed the
+backend was reachable and CORS-open from the frontend origin first, so the wrong URL was the
+whole problem.
+
+**2. The single Postgres connection went stale and never recovered.** With the URL fixed,
+`/api/reviews` 500'd and `/readyz` 503'd with *"the connection is closed"*. Each adapter held
+one long-lived psycopg connection opened at startup; **Neon (serverless Postgres) closes idle
+connections aggressively**, and Render keeps the process alive far longer than Neon keeps a
+connection alive, so the connection goes stale and every query fails until a restart.
+`/api/status` masked it by already catching DB errors and degrading. Fixed with a
+`ReconnectingConnection` wrapper the five adapters now hold in place of the raw connection: it
+pings (`SELECT 1`) and transparently reopens before handing out a cursor, so no query changed.
+The integration test closes the real connection out from under the adapter — exactly what Neon
+does — and asserts the next operation still succeeds; gate-proofed by disabling the reconnect
+and watching the test fail with the identical production error.
+
+**3. Fresh doc-ingestion doesn't fit 512MB, and no amount of `max_files` tuning changes that.**
+Earlier phases had chased this with a shrinking `max_files` (60 → 20 → 8). Watching it live
+settled it: a first-time review of mypy *and* of black both OOM-killed the container right after
+`ingestion.started` (health flips 502 → 502 → 200 as Render restarts it). The peak isn't the
+chunk count — it's fastembed's ONNX runtime (~200MB) loading on the first embed, on top of a
+~300MB baseline (Python, uvicorn, the vendored MCP server subprocess). That tips past 512MB
+essentially regardless of how few files you feed it, which is why a lower `max_files` never
+fixed it and why one earlier black review squeaking through was luck, not a solution. The honest
+resolutions are a paid tier (more RAM, zero code) or out-of-process embeddings (drop the ~200MB
+from the server) — a *deployment-tier* limit, not a design flaw: the identical binary reviews
+any repo end to end given adequate memory, which it has locally.
+
+What shipped for the free-tier reality rather than pretending it away: the dashboard no longer
+hangs on "Reviewing…" forever when the backend drops mid-stream — a stream that ends without a
+`review.completed` now surfaces an honest "the server ran out of memory indexing…" message. And
+the hosted demo leads with an already-cached PR (instant, unaffected by the ceiling), while the
+full findings-rich review is the local run. The limitation is documented in `DEMO.md` and
+`docs/Deploy.md` as the tier tradeoff it is.
+
+The meta-lesson, consistent with every phase before it: building and CI-passing is not
+deploying, and deploying is not *running*. Each of these three was a real, distinct failure that
+only the live URL — a real second service, a real serverless DB, a real memory cap — could
+surface.
+
 ## Phase 16 — the write path, finally posted for real, and it wasn't the shape we'd written
 
 Everything through Phase 15 was read-only. The write path -- posting a review comment back to a
