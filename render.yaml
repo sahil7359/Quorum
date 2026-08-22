@@ -48,12 +48,13 @@ services:
     plan: free
     # why a build-time arg, not a runtime env var: NEXT_PUBLIC_ values are inlined into the
     # client JS bundle by `next build` (see frontend/Dockerfile), so the backend URL has to be
-    # known when the image is built, not when the container starts. `fromService` resolves the
-    # backend's own Render URL so this isn't a hardcoded hostname that breaks if the backend is
-    # renamed or redeployed to a new address.
+    # known when the image is built, not when the container starts.
+    #
+    # why a plain hardcoded URL and not `fromService ... property: host`: that auto-wiring
+    # resolved to the bare service *name* ("quorum"), not the external hostname, so the frontend
+    # baked in "https://quorum-aka2/api/..." (no domain) and every call failed. Found live,
+    # inspecting the deployed frontend's network calls. The backend URL is public and stable, so
+    # a plain value is both correct and simpler; update it here if the backend is ever renamed.
     envVars:
       - key: NEXT_PUBLIC_API_BASE
-        fromService:
-          type: web
-          name: quorum
-          property: host
+        value: https://quorum-aka2.onrender.com
