@@ -55,10 +55,19 @@ so that 'the agent cannot do X' is enforced by types and tests, not by hoping."*
 5. Point at the **Recent reviews** panel on the right — every completed review is there
    (persisted in Postgres), expandable to its findings. Clicking a past one is instant.
 
-> **Warm it up first.** The *first* review of any PR indexes its docs (~30s) and runs the model
-> live. Click both examples once before presenting so they're cached and return instantly. On
-> the deployed backend there's a **daily live-review cap** (4/day by default) — a cache hit does
-> not count against it, so pre-warmed examples demo freely.
+> **Warm it up first — this matters on the hosted demo.** Render's free tier spins a service
+> down after ~15 minutes idle and cold-starts it (~30s) on the next hit — measured directly. So
+> ~2 minutes before you present, wake both services: either open the URL and wait for it to
+> load, or run the **`warm` workflow** (repo → Actions → "warm" → Run workflow), which pings both
+> and confirms the DB is live. After that they stay warm for the ~15-minute window that follows.
+> A cache hit doesn't count against the **daily live-review cap** (4/day), so the cached example
+> demos freely once warm.
+>
+> **What keeps it live (and what doesn't):** nothing keeps a free-tier service *continuously*
+> alive — it sleeps when idle and wakes on demand. Pinging it around the clock isn't the answer
+> either: the free tier meters ~750 instance-hours/month across the account, and two always-on
+> services would blow past that. Warm-on-demand (above) is the free-tier play; a paid instance
+> (no spin-down) is the only genuine always-on.
 
 ### The write path (posting back to GitHub)
 

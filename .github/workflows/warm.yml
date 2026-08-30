@@ -1,0 +1,47 @@
+# Warm the deployed services before a demo.
+#
+# Why this exists: Render's free tier spins a service down after ~15 minutes of no traffic and
+# cold-starts it (~30s) on the next request -- measured directly, the root URLs time out at 25s
+# then return 200 at ~32s from cold. That first slow request looks broken in front of an
+# audience. Run this workflow (Actions tab -> "warm" -> Run workflow) ~2 minutes before you
+# present: it wakes both services and leaves them warm for the ~15-minute window that follows.
+#
+# Deliberately manual (workflow_dispatch), NOT a schedule: on the free tier a single account
+# gets ~750 instance-hours/month, and pinging two services around the clock to keep them
+# always-on would burn well past that and spin them down anyway. Warming on demand is the honest
+# free-tier answer; for genuine always-on, upgrade one service to a paid instance instead.
+name: warm
+
+on:
+  workflow_dispatch:
+
+jobs:
+  warm:
+    name: wake the deployed services
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: warm the backend
+        run: |
+          echo "waking backend (cold start can take ~30s)…"
+          code=$(curl -s -o /dev/null --retry 5 --retry-all-errors --retry-delay 8 \
+            -m 90 -w "%{http_code}" https://quorum-aka2.onrender.com/healthz)
+          echo "backend /healthz -> $code"
+          test "$code" = "200"
+
+      - name: warm the frontend
+        run: |
+          echo "waking frontend…"
+          code=$(curl -s -o /dev/null --retry 5 --retry-all-errors --retry-delay 8 \
+            -m 90 -w "%{http_code}" https://quorum-web.onrender.com/)
+          echo "frontend / -> $code"
+          test "$code" = "200"
+
+      - name: confirm the review API answers
+        run: |
+          # /readyz proves the DB connection is live too, not just that the process is up.
+          code=$(curl -s -o /dev/null --retry 3 --retry-all-errors --retry-delay 5 \
+            -m 60 -w "%{http_code}" https://quorum-aka2.onrender.com/readyz)
+          echo "backend /readyz -> $code"
+          test "$code" = "200"
+          echo "both services warm and ready."
